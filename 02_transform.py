@@ -1,5 +1,5 @@
 # Databricks notebook source
-# MAGIC %pip install geopandas shapely rasterio pycountry folium plotly scikit-learn pyproj pulp highspy
+# MAGIC %pip install geopandas shapely rasterio pycountry folium plotly scikit-learn pyproj pulp
 
 # COMMAND ----------
 
@@ -347,8 +347,7 @@ def _compute_coverage_h3_internal(facilities_sdf, population_sdf, h3_resolution:
 
     # Aggregate coverage per facility
     facility_coverage_sdf = coverage_sdf.groupBy("facility_ID").agg(
-        F.sum("population").alias("pop_with_access"),
-        F.collect_list("pop_ID").alias("covered_pop_ids")
+        F.sum("population").alias("pop_with_access")
     )
 
     # Join back to facilities
@@ -375,12 +374,13 @@ def compute_coverage_h3(
 ):
     """
     Wrapper for coverage computation with UC table caching.
+    Coverage table is not cached - it's large and only used once for aggregation.
     """
     if not force and table_exists(facilities_output_table) and table_exists(coverage_output_table):
-        print(f"  Coverage already exists, loading from UC...")
+        print(f"  Loading from UC (lazy)...")
         fac_sdf = spark.table(facilities_output_table).cache()
-        cov_sdf = spark.table(coverage_output_table).cache()
-        print(f"    Facilities: {fac_sdf.count()}, Coverage pairs: {cov_sdf.count():,}")
+        cov_sdf = spark.table(coverage_output_table)  # No cache - too large
+        print(f"    Facilities: {fac_sdf.count()}")
         return fac_sdf, cov_sdf
 
     result_sdf, flat_sdf = _compute_coverage_h3_internal(
@@ -392,7 +392,7 @@ def compute_coverage_h3(
     flat_sdf.write.mode("overwrite").saveAsTable(coverage_output_table)
     print(f"  Saved to: {facilities_output_table}, {coverage_output_table}")
 
-    return spark.table(facilities_output_table).cache(), spark.table(coverage_output_table).cache()
+    return spark.table(facilities_output_table).cache(), spark.table(coverage_output_table)
 
 
 print(f"Computing coverage (H3 resolution={H3_RESOLUTION}, k_rings={K_RINGS}, ~{K_RINGS * H3_EDGE_LENGTH_M[H3_RESOLUTION]}m)...")
