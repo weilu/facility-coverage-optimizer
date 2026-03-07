@@ -16,8 +16,12 @@ import urllib.request
 import requests
 import pandas as pd
 import geopandas as gpd
+import numpy as np
 import pycountry
+import rasterio
+from rasterio.windows import Window
 from gadm import GADMDownloader
+from pyspark.sql.types import StructType, StructField, DoubleType, StringType
 
 # COMMAND ----------
 
@@ -29,8 +33,8 @@ ADM_LEVEL2 = None
 POPULATION_YEAR = 2025
 
 UC_CATALOG = "prd_mega"
-UC_SCHEMA = "sgpbpi163"
-VOLUME_DIR = f"/Volumes/{UC_CATALOG}/{UC_SCHEMA}/vgpbpi163"
+UC_SCHEMA = "pim"
+VOLUME_DIR = f"/Volumes/{UC_CATALOG}/sboost4/vboost4"
 
 # COMMAND ----------
 
@@ -78,9 +82,26 @@ def table_exists(table_name: str) -> bool:
 
 def gdf_to_uc_table(gdf: gpd.GeoDataFrame, table_name: str, mode: str = "overwrite"):
     """Save GeoDataFrame to Unity Catalog table with geometry as WKT."""
-    pdf = gdf.copy()
-    pdf["geometry_wkt"] = pdf.geometry.apply(lambda g: g.wkt if g else None)
-    pdf = pdf.drop(columns=["geometry"])
+    pdf = pd.DataFrame(gdf.drop(columns=["geometry"]))
+    pdf["geometry_wkt"] = gdf.geometry.apply(lambda g: g.wkt if g else None)
+
+    # Handle duplicate column names (case-insensitive in Spark)
+    cols_lower = [c.lower() for c in pdf.columns]
+    seen = set()
+    new_cols = []
+    for i, col in enumerate(pdf.columns):
+        col_lower = cols_lower[i]
+        if col_lower in seen:
+            # Rename duplicate by appending suffix
+            new_col = f"{col}_dup"
+            while new_col.lower() in seen:
+                new_col = f"{new_col}_"
+            new_cols.append(new_col)
+            seen.add(new_col.lower())
+        else:
+            new_cols.append(col)
+            seen.add(col_lower)
+    pdf.columns = new_cols
 
     sdf = spark.createDataFrame(pdf)
     sdf.write.mode(mode).saveAsTable(table_name)
@@ -168,6 +189,95 @@ def extract_worldpop_raster(
 
 # COMMAND ----------
 
+# EXTRACT: POPULATION RASTER TO UC TABLE (CHUNKED)
+
+def extract_population_chunked(
+    raster_path: str,
+    table_name: str,
+    chunk_size: int = 1024,
+    force: bool = False,
+) -> int:
+    """
+    Reads WorldPop raster in chunks and saves populated pixels to UC table.
+    Uses windowed reading to avoid loading entire raster into memory.
+    Returns total number of populated pixels.
+    """
+    if not force and table_exists(table_name):
+        count = spark.table(table_name).count()
+        print(f"Population table already exists: {table_name} ({count:,} rows)")
+        return count
+
+    print(f"Processing raster in chunks: {raster_path}")
+
+    schema = StructType([
+        StructField("xcoord", DoubleType(), False),
+        StructField("ycoord", DoubleType(), False),
+        StructField("population", DoubleType(), False),
+    ])
+
+    total_pixels = 0
+    first_chunk = True
+
+    with rasterio.open(raster_path) as src:
+        height = src.height
+        width = src.width
+        transform_affine = src.transform
+
+        n_row_chunks = (height + chunk_size - 1) // chunk_size
+        n_col_chunks = (width + chunk_size - 1) // chunk_size
+        total_chunks = n_row_chunks * n_col_chunks
+
+        print(f"  Raster size: {width} x {height}")
+        print(f"  Chunk size: {chunk_size} x {chunk_size}")
+        print(f"  Total chunks: {total_chunks}")
+
+        chunk_num = 0
+        for row_off in range(0, height, chunk_size):
+            for col_off in range(0, width, chunk_size):
+                chunk_num += 1
+
+                win_height = min(chunk_size, height - row_off)
+                win_width = min(chunk_size, width - col_off)
+                window = Window(col_off, row_off, win_width, win_height)
+
+                data = src.read(1, window=window)
+
+                rows, cols = np.where(data > 0)
+                if len(rows) == 0:
+                    continue
+
+                values = data[rows, cols].astype(float)
+
+                abs_rows = rows + row_off
+                abs_cols = cols + col_off
+                x_coords, y_coords = rasterio.transform.xy(
+                    transform_affine, abs_rows, abs_cols, offset="center"
+                )
+
+                pdf = pd.DataFrame({
+                    "xcoord": np.array(x_coords, dtype=float),
+                    "ycoord": np.array(y_coords, dtype=float),
+                    "population": values,
+                })
+
+                sdf = spark.createDataFrame(pdf, schema=schema)
+
+                if first_chunk:
+                    sdf.write.mode("overwrite").saveAsTable(table_name)
+                    first_chunk = False
+                else:
+                    sdf.write.mode("append").saveAsTable(table_name)
+
+                total_pixels += len(rows)
+
+                if chunk_num % 50 == 0 or chunk_num == total_chunks:
+                    print(f"  Processed chunk {chunk_num}/{total_chunks}, pixels so far: {total_pixels:,}")
+
+    print(f"Population table saved: {table_name} ({total_pixels:,} rows)")
+    return total_pixels
+
+# COMMAND ----------
+
 # EXTRACT: HEALTH FACILITIES FROM OSM
 
 def extract_health_facilities_osm(iso_2: str, table_name: str, force: bool = False) -> pd.DataFrame:
@@ -199,9 +309,10 @@ def extract_health_facilities_osm(iso_2: str, table_name: str, force: bool = Fal
         elements = response.json()["elements"]
         df = pd.DataFrame(elements)
         if df.empty:
-            return pd.DataFrame(columns=["id", "lat", "lon", "name"])
+            return pd.DataFrame(columns=["osm_id", "lat", "lon", "name"])
         df["name"] = df["tags"].apply(lambda x: x.get("name") if isinstance(x, dict) else None)
-        return df[["id", "lat", "lon", "name"]].dropna(subset=["lat", "lon"])
+        df = df.rename(columns={"id": "osm_id"})
+        return df[["osm_id", "lat", "lon", "name"]].dropna(subset=["lat", "lon"])
 
     print(f"Querying OSM for hospitals in {iso_2}...")
     df_hospitals = query_osm_amenity("hospital")
@@ -213,7 +324,7 @@ def extract_health_facilities_osm(iso_2: str, table_name: str, force: bool = Fal
 
     df_health = (
         pd.concat([df_hospitals, df_clinics])
-        .drop_duplicates(subset="id")
+        .drop_duplicates(subset="osm_id")
         .reset_index(drop=True)
     )
 
@@ -259,7 +370,7 @@ selected_gadm_gdf = extract_gadm_boundaries(
 
 # COMMAND ----------
 
-# Extract WorldPop raster (stays as file - cannot store GeoTIFF in table)
+# Extract WorldPop raster (download to Volume)
 ensure_dir(VOLUME_DIR)
 raster_path = os.path.join(VOLUME_DIR, f"worldpop_{ISO_3.lower()}_{POPULATION_YEAR}.tif")
 extract_worldpop_raster(
@@ -270,13 +381,23 @@ extract_worldpop_raster(
 
 # COMMAND ----------
 
+# Convert raster to UC table using chunked processing
+population_table = f"{UC_CATALOG}.{UC_SCHEMA}.population_{ISO_3.lower()}_{POPULATION_YEAR}"
+extract_population_chunked(
+    raster_path=raster_path,
+    table_name=population_table,
+    chunk_size=1024,
+)
+
+# COMMAND ----------
+
 # Extract health facilities
 # Option A: Query OSM (uncomment to use)
 # facilities_table = f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{ISO_3.lower()}_osm"
 # extract_health_facilities_osm(ISO_2, facilities_table)
 
 # Option B: Use existing curated file
-INPUT_FACILITIES_PATH = "/Volumes/prd_mega/sgpbpi163/vgpbpi163/selected_hosp_input_data.geojson"
+INPUT_FACILITIES_PATH = f"{VOLUME_DIR}/selected_hosp_input_data.geojson"
 facilities_table = f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{ISO_3.lower()}"
 extract_existing_facilities(INPUT_FACILITIES_PATH, facilities_table)
 
@@ -289,5 +410,6 @@ print("EXTRACTION COMPLETE")
 print("=" * 60)
 print(f"GADM boundaries:    {gadm_table}")
 print(f"Population raster:  {raster_path}")
+print(f"Population table:   {population_table}")
 print(f"Health facilities:  {facilities_table}")
 print("=" * 60)
