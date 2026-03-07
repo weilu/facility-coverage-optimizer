@@ -392,6 +392,7 @@ extract_worldpop_raster(
 # COMMAND ----------
 
 # Convert raster to UC table using chunked processing
+# Long-running – takes 7 minutes to process
 population_table = f"{UC_CATALOG}.{UC_SCHEMA}.population_{ISO_3.lower()}_{POPULATION_YEAR}"
 extract_population_chunked(
     raster_path=raster_path,

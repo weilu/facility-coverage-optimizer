@@ -183,6 +183,7 @@ def load_population_aoi(table_name: str, boundary_wkt: str, h3_resolution: int):
     return sdf_aoi.cache()
 
 
+# Long-running – takes 4 minutes to process
 population_aoi_sdf = load_population_aoi(POPULATION_TABLE, boundary_wkt, H3_RESOLUTION)
 population_aoi_sdf.count()
 total_population = population_aoi_sdf.agg(F.sum("population")).collect()[0][0]
