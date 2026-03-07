@@ -16,11 +16,10 @@ import plotly.graph_objects as go
 from shapely.geometry import Point
 from shapely.wkt import loads as wkt_loads
 from sklearn.cluster import KMeans
-from pyproj import Transformer
 
 from pyspark.sql import functions as F
-from pyspark.sql.types import StringType, BooleanType, StructType, StructField
-from pyspark.sql.functions import udf, pandas_udf
+from pyspark.sql.types import StringType, StructType, StructField
+from pyspark.sql.functions import udf
 
 import gurobipy as gp
 from gurobipy import GRB
@@ -48,10 +47,25 @@ N_CLUSTERS = 100
 TARGET_NEW_FACILITIES = 7
 H3_RESOLUTION = 8  # Must match extraction resolution
 
-# Derived table names
+# Set to True to recompute cached results
+FORCE_RECOMPUTE = False
+
+# H3 resolution 8 edge length is ~461m
+# k_rings = ceil(distance_meters / edge_length)
+H3_EDGE_LENGTH_M = {4: 22606, 5: 8544, 6: 3229, 7: 1220, 8: 461, 9: 174, 10: 66}
+K_RINGS = int(np.ceil(DISTANCE_METERS / H3_EDGE_LENGTH_M[H3_RESOLUTION]))
+
+# Derived table names (input)
 GADM_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_{COUNTRY_ISO3.lower()}"
 FACILITIES_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{COUNTRY_ISO3.lower()}"
 POPULATION_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.population_{COUNTRY_ISO3.lower()}_{POPULATION_YEAR}"
+
+# Derived table names (cached intermediate results)
+POPULATION_AOI_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.population_aoi_{COUNTRY_ISO3.lower()}_{POPULATION_YEAR}"
+FACILITIES_H3_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.facilities_h3_{COUNTRY_ISO3.lower()}"
+FACILITIES_COVERAGE_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.facilities_coverage_{COUNTRY_ISO3.lower()}"
+POTENTIAL_LOCATIONS_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.potential_locations_{COUNTRY_ISO3.lower()}"
+POTENTIAL_COVERAGE_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.potential_coverage_{COUNTRY_ISO3.lower()}"
 
 # COMMAND ----------
 
@@ -65,42 +79,20 @@ def st_point_wkt(lon, lat):
     return Point(float(lon), float(lat)).wkt
 
 
-@udf(BooleanType())
-def st_within_wkt(point_wkt, polygon_wkt):
-    """Returns True if point is within polygon."""
-    if point_wkt is None or polygon_wkt is None:
-        return False
-    try:
-        return wkt_loads(point_wkt).within(wkt_loads(polygon_wkt))
-    except Exception:
-        return False
-
-
-@pandas_udf(StringType())
-def st_buffer_meters(geom_wkt_series: pd.Series, distance_series: pd.Series) -> pd.Series:
-    """Returns buffered geometry as WKT. Projects to Web Mercator for accurate distance."""
-    from shapely.ops import transform
-
-    to_3857 = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True).transform
-    to_4326 = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True).transform
-
-    results = []
-    for wkt, dist in zip(geom_wkt_series, distance_series):
-        try:
-            geom_3857 = transform(to_3857, wkt_loads(wkt))
-            buffered_3857 = geom_3857.buffer(float(dist))
-            buffered_4326 = transform(to_4326, buffered_3857)
-            results.append(buffered_4326.wkt)
-        except Exception:
-            results.append(None)
-    return pd.Series(results)
-
-
 print("Spatial UDFs registered.")
 
 # COMMAND ----------
 
-# HELPER: LOAD GEODATAFRAME FROM UC TABLE
+# HELPER FUNCTIONS
+
+def table_exists(table_name: str) -> bool:
+    """Check if UC table exists."""
+    try:
+        spark.sql(f"DESCRIBE TABLE {table_name}")
+        return True
+    except Exception:
+        return False
+
 
 def uc_table_to_gdf(table_name: str) -> gpd.GeoDataFrame:
     """Load Unity Catalog table as GeoDataFrame."""
@@ -133,14 +125,29 @@ print(f"  Map center: lat={CENTER_LAT:.4f}, lon={CENTER_LON:.4f}")
 
 # TRANSFORM: LOAD POPULATION AND FILTER TO AOI
 
-def load_population_aoi(table_name: str, boundary_wkt: str, h3_resolution: int):
+def load_population_aoi(
+    source_table: str,
+    output_table: str,
+    boundary_wkt: str,
+    h3_resolution: int,
+    force: bool = False,
+):
     """
     Loads population from UC table and filters to AOI using H3 index.
     Uses Photon-accelerated H3 functions for fast spatial filtering.
+    Caches result to UC table.
     """
-    print(f"Loading population from: {table_name}")
+    if not force and table_exists(output_table):
+        print(f"Population AOI already exists, loading: {output_table}")
+        sdf = spark.table(output_table).cache()
+        count = sdf.count()
+        total = sdf.agg(F.sum("population")).collect()[0][0]
+        print(f"  Loaded {count:,} pixels, population: {round(total):,}")
+        return sdf
 
-    sdf = spark.table(table_name)
+    print(f"Computing population AOI from: {source_table}")
+
+    sdf = spark.table(source_table)
     total_rows = sdf.count()
     print(f"  Total pixels in table: {total_rows:,}")
 
@@ -180,11 +187,16 @@ def load_population_aoi(table_name: str, boundary_wkt: str, h3_resolution: int):
         .otherwise(F.lit(1.0)),
     )
 
-    return sdf_aoi.cache()
+    # Save to UC table
+    sdf_aoi.write.mode("overwrite").saveAsTable(output_table)
+    print(f"  Saved to: {output_table}")
+
+    return spark.table(output_table).cache()
 
 
-# Long-running – takes 4 minutes to process
-population_aoi_sdf = load_population_aoi(POPULATION_TABLE, boundary_wkt, H3_RESOLUTION)
+population_aoi_sdf = load_population_aoi(
+    POPULATION_TABLE, POPULATION_AOI_TABLE, boundary_wkt, H3_RESOLUTION, FORCE_RECOMPUTE
+)
 population_aoi_sdf.count()
 total_population = population_aoi_sdf.agg(F.sum("population")).collect()[0][0]
 
@@ -280,43 +292,44 @@ potential_locations_sdf.count()
 
 # COMMAND ----------
 
-# TRANSFORM: COMPUTE CATCHMENT AREAS
+# TRANSFORM: ADD H3 INDEX TO FACILITIES
 
-def compute_catchment_areas(facilities_sdf, distance_meters: int):
-    """Adds catchment_area_wkt column using buffer."""
-    dist_col = F.lit(float(distance_meters))
+def add_facility_h3_index(facilities_sdf, h3_resolution: int):
+    """Adds H3 index to facilities based on their location."""
     return facilities_sdf.withColumn(
-        "cachment_area_wkt",
-        st_buffer_meters(F.col("geom_wkt"), dist_col),
+        "h3_index",
+        F.expr(f"h3_longlatash3(lon, lat, {h3_resolution})")
     )
 
 
-print(f"Computing catchment areas ({DISTANCE_METERS}m buffer)...")
-selected_hosp_sdf = compute_catchment_areas(selected_hosp_sdf, DISTANCE_METERS).cache()
-potential_locations_sdf = compute_catchment_areas(potential_locations_sdf, DISTANCE_METERS).cache()
+print(f"Adding H3 index to facilities (resolution {H3_RESOLUTION})...")
+selected_hosp_sdf = add_facility_h3_index(selected_hosp_sdf, H3_RESOLUTION).cache()
+potential_locations_sdf = add_facility_h3_index(potential_locations_sdf, H3_RESOLUTION).cache()
 
 selected_hosp_sdf.count()
 potential_locations_sdf.count()
-print("  Catchment areas computed.")
+print("  H3 indexes added.")
 
 # COMMAND ----------
 
 # TRANSFORM: COMPUTE POPULATION COVERAGE
 
-def compute_coverage_h3(facilities_sdf, population_sdf, h3_resolution: int):
+def _compute_coverage_h3_internal(facilities_sdf, population_sdf, h3_resolution: int, k_rings: int):
     """
-    Computes which population points fall inside each facility's catchment using H3.
+    Computes which population points fall inside each facility's catchment using H3 grid rings.
     Uses distributed Spark joins instead of Python loops.
+
+    k_rings: number of H3 rings around facility (determines catchment radius)
     """
     fac_count = facilities_sdf.count()
     pop_count = population_sdf.count()
-    print(f"  Computing coverage: {fac_count} facilities x {pop_count:,} pop points (H3)...")
+    print(f"  Computing coverage: {fac_count} facilities x {pop_count:,} pop points (H3 k={k_rings})...")
 
-    # Get H3 cells covering each facility's catchment area
+    # Get H3 cells within k rings of each facility (disk, not ring)
     fac_h3_sdf = facilities_sdf.select(
         F.col("ID").alias("facility_ID"),
         F.explode(
-            F.expr(f"h3_polyfillash3(cachment_area_wkt, {h3_resolution})")
+            F.expr(f"h3_griddisk(h3_index, {k_rings})")
         ).alias("h3_index")
     )
 
@@ -350,11 +363,49 @@ def compute_coverage_h3(facilities_sdf, population_sdf, h3_resolution: int):
     return result_sdf, flat_sdf
 
 
-print("Computing coverage for existing facilities...")
-selected_hosp_sdf, hosp_coverage_sdf = compute_coverage_h3(selected_hosp_sdf, population_aoi_sdf, H3_RESOLUTION)
+def compute_coverage_h3(
+    facilities_sdf,
+    population_sdf,
+    h3_resolution: int,
+    k_rings: int,
+    facilities_output_table: str,
+    coverage_output_table: str,
+    force: bool = False,
+):
+    """
+    Wrapper for coverage computation with UC table caching.
+    """
+    if not force and table_exists(facilities_output_table) and table_exists(coverage_output_table):
+        print(f"  Coverage already exists, loading from UC...")
+        fac_sdf = spark.table(facilities_output_table).cache()
+        cov_sdf = spark.table(coverage_output_table).cache()
+        print(f"    Facilities: {fac_sdf.count()}, Coverage pairs: {cov_sdf.count():,}")
+        return fac_sdf, cov_sdf
 
-print("Computing coverage for potential locations...")
-potential_locations_sdf, potential_coverage_sdf = compute_coverage_h3(potential_locations_sdf, population_aoi_sdf, H3_RESOLUTION)
+    result_sdf, flat_sdf = _compute_coverage_h3_internal(
+        facilities_sdf, population_sdf, h3_resolution, k_rings
+    )
+
+    # Save to UC tables
+    result_sdf.write.mode("overwrite").saveAsTable(facilities_output_table)
+    flat_sdf.write.mode("overwrite").saveAsTable(coverage_output_table)
+    print(f"  Saved to: {facilities_output_table}, {coverage_output_table}")
+
+    return spark.table(facilities_output_table).cache(), spark.table(coverage_output_table).cache()
+
+
+print(f"Computing coverage (H3 resolution={H3_RESOLUTION}, k_rings={K_RINGS}, ~{K_RINGS * H3_EDGE_LENGTH_M[H3_RESOLUTION]}m)...")
+print("  Existing facilities...")
+selected_hosp_sdf, hosp_coverage_sdf = compute_coverage_h3(
+    selected_hosp_sdf, population_aoi_sdf, H3_RESOLUTION, K_RINGS,
+    FACILITIES_H3_TABLE, FACILITIES_COVERAGE_TABLE, FORCE_RECOMPUTE
+)
+
+print("  Potential locations...")
+potential_locations_sdf, potential_coverage_sdf = compute_coverage_h3(
+    potential_locations_sdf, population_aoi_sdf, H3_RESOLUTION, K_RINGS,
+    POTENTIAL_LOCATIONS_TABLE, POTENTIAL_COVERAGE_TABLE, FORCE_RECOMPUTE
+)
 
 # COMMAND ----------
 
