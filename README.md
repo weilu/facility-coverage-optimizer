@@ -1,6 +1,8 @@
 # Health Facility Location Optimizer
 
-Optimizes placement of new health facilities using Maximum Covering Location Problem (MCLP) to maximize population access within a travel distance threshold. Uses PuLP with HiGHS solver (open-source).
+Optimizes placement of new health facilities using Maximum Covering Location Problem (MCLP) to maximize population access within a travel distance threshold. Uses a greedy approximation algorithm for scalability.
+
+See [docs/optimization_approach.md](docs/optimization_approach.md) for details on the algorithm choice.
 
 ## Scripts
 

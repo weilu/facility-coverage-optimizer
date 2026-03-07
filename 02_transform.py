@@ -1,5 +1,5 @@
 # Databricks notebook source
-# MAGIC %pip install geopandas shapely rasterio pycountry folium plotly scikit-learn pyproj pulp
+# MAGIC %pip install geopandas shapely rasterio pycountry folium plotly scikit-learn pyproj
 
 # COMMAND ----------
 
@@ -21,7 +21,6 @@ from pyspark.sql import functions as F
 from pyspark.sql.types import StringType, StructType, StructField
 from pyspark.sql.functions import udf
 
-import pulp
 
 print(f"Spark version: {spark.version}")
 
@@ -544,67 +543,79 @@ print(f"  Coverage pairs: {sum(len(v) for v in JI.values()):,}")
 
 # COMMAND ----------
 
-# OPTIMIZE: MCLP WITH PULP (OPEN SOURCE)
+# OPTIMIZE: GREEDY MCLP (SCALABLE)
 
-def solve_mclp_pulp(w, I, J, JI, p, J_existing):
-    """Maximum Covering Location Problem using PuLP with HiGHS solver."""
-    model = pulp.LpProblem("MCLP", pulp.LpMaximize)
+def solve_mclp_greedy(w, IJ, J_existing, J_potential, max_new_facilities):
+    """
+    Greedy Maximum Covering Location Problem.
 
-    # Decision variables
-    x = pulp.LpVariable.dicts("x", J, cat=pulp.LpBinary)
-    z = pulp.LpVariable.dicts("z", I, cat=pulp.LpBinary)
+    Args:
+        w: dict of {h3_cell: population}
+        IJ: dict of {h3_cell: [facility_ids that cover it]}
+        J_existing: list of existing facility IDs
+        J_potential: list of potential facility IDs
+        max_new_facilities: maximum number of new facilities to add
 
-    # Objective: maximize covered population
-    model += pulp.lpSum(w[i] * z[i] for i in I)
+    Returns list of results for p=1..max_new_facilities
+    """
+    # Build reverse index: facility -> set of H3 cells it covers
+    facility_covers = {}
+    for h3_cell, fac_list in IJ.items():
+        for fac in fac_list:
+            if fac not in facility_covers:
+                facility_covers[fac] = set()
+            facility_covers[fac].add(h3_cell)
 
-    # Coverage constraints
-    for i in I:
-        if JI.get(i):
-            model += z[i] <= pulp.lpSum(x[j] for j in JI[i])
-        else:
-            model += z[i] == 0
+    # Initialize with existing facilities
+    selected = set(J_existing)
+    covered_h3 = set()
+    for fac in J_existing:
+        if fac in facility_covers:
+            covered_h3.update(facility_covers[fac])
 
-    # Budget constraint
-    model += pulp.lpSum(x[j] for j in J) <= len(J_existing) + p
+    current_coverage = sum(w.get(h3, 0) for h3 in covered_h3)
 
-    # Existing facilities must stay open
-    for j in J_existing:
-        model += x[j] == 1
+    results = []
+    candidates = set(J_potential) - selected
 
-    # Solve with HiGHS
-    solver = pulp.HiGHS_CMD(msg=0)
-    model.solve(solver)
+    for p in range(1, max_new_facilities + 1):
+        best_fac = None
+        best_gain = 0
 
-    if model.status != pulp.LpStatusOptimal:
-        print(f"  Warning: solver status = {pulp.LpStatus[model.status]}")
+        # Find facility with maximum marginal gain
+        for fac in candidates:
+            if fac not in facility_covers:
+                continue
+            new_cells = facility_covers[fac] - covered_h3
+            gain = sum(w.get(h3, 0) for h3 in new_cells)
+            if gain > best_gain:
+                best_gain = gain
+                best_fac = fac
 
-    selected_facilities = [j for j in J if x[j].varValue and x[j].varValue > 0.5]
-    covered_h3 = [i for i in I if z[i].varValue and z[i].varValue > 0.5]
+        if best_fac is None or best_gain == 0:
+            print(f"  No further improvement at p={p}. Stopping.")
+            break
 
-    return pulp.value(model.objective), selected_facilities, covered_h3
+        # Add best facility
+        selected.add(best_fac)
+        candidates.remove(best_fac)
+        covered_h3.update(facility_covers[best_fac])
+        current_coverage += best_gain
+
+        results.append({
+            "p": p,
+            "objective": current_coverage,
+            "selected_facilities": list(selected),
+            "covered_h3": list(covered_h3),
+        })
+
+        print(f"  p={p} | +{best_gain:.0f} | Total covered: {current_coverage:.0f} | Facilities: {len(selected)}")
+
+    return results
 
 
-pareto_results = []
-previous_obj = -1
-
-print("Running MCLP optimization (PuLP + HiGHS)...")
-for p in range(1, len(J_potential) + 1):
-    obj, selected_facilities, covered_h3 = solve_mclp_pulp(
-        w, I, J, JI, p, J_existing
-    )
-    pareto_results.append({
-        "p": p,
-        "objective": obj,
-        "selected_facilities": selected_facilities,
-        "covered_h3": covered_h3,
-    })
-
-    if round(obj) == round(previous_obj):
-        print("  No further improvement. Stopping.")
-        break
-
-    previous_obj = obj
-    print(f"  p={p} | Covered pop={obj:.0f} | Total facilities: {len(selected_facilities)}")
+print("Running greedy MCLP optimization...")
+pareto_results = solve_mclp_greedy(w, JI, J_existing, J_potential, TARGET_NEW_FACILITIES + 5)
 
 # COMMAND ----------
 
