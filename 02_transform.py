@@ -39,6 +39,9 @@ POPULATION_YEAR = 2025
 TRAVEL_API = ""  # "" for buffer, "osm", or "mapbox"
 
 DISTANCE_METERS = 10000
+dis_km = int(DISTANCE_METERS / 1000)
+distance_name = f"{dis_km}km"
+
 MAPBOX_ACCESS_TOKEN = ""
 MAPBOX_MODE = "driving"
 
