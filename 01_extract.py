@@ -108,8 +108,8 @@ def gdf_to_uc_table(gdf: gpd.GeoDataFrame, table_name: str, mode: str = "overwri
             new_cols.append(col)
             seen.add(col_lower)
     pdf.columns = new_cols
-
-    sdf = spark.createDataFrame(pdf)
+    pdf = pdf.reset_index(drop=True)
+    sdf = spark.createDataFrame(pdf.to_dict('records')) 
     sdf.write.mode(mode).saveAsTable(table_name)
     print(f"Table saved: {table_name} ({len(gdf)} rows)")
 
@@ -382,6 +382,7 @@ selected_gadm_gdf = extract_gadm_boundaries(
     adm_level1=ADM_LEVEL1,
     adm_level2=ADM_LEVEL2,
     table_name=gadm_table,
+    force=True,
 )
 
 # COMMAND ----------
@@ -435,3 +436,175 @@ print(f"Population raster:  {raster_path}")
 print(f"Population table:   {population_table}")
 print(f"Health facilities:  {facilities_table}")
 print("=" * 60)
+
+# COMMAND ----------
+
+def extract_gadm_boundaries_lgu(
+    country: str,
+    table_name: str,
+    force: bool = False,
+) -> gpd.GeoDataFrame:
+    """
+    Downloads GADM level-2 (district/LGU) boundaries for the given country
+    and saves to UC table with ONLY two columns:
+        - LGU           : district name (e.g. "Lusaka", "Luangwa")
+        - geometry_wkt  : polygon geometry in WKT (EPSG:4326)
+
+    Mirrors extract_gadm_boundaries but always uses ad_level=2 and
+    normalises the output to the mandatory (LGU, geometry_wkt) schema.
+
+    Args:
+        country    : country name recognised by GADMDownloader (e.g. "Zambia")
+        table_name : fully-qualified UC table  (catalog.schema.table)
+        force      : overwrite even if the table already exists
+
+    Returns:
+        GeoDataFrame with columns [LGU, geometry]
+    """
+    # if not force and table_exists(table_name):
+    #     print(f"LGU boundaries already exist, loading: {table_name}")
+    #     return uc_table_to_gdf(table_name)
+
+    downloader = GADMDownloader(version="4.0")
+    df_shp = downloader.get_shape_data_by_country_name(country_name=country, ad_level=2)
+    print(df_shp)
+    # Keep only the district name and geometry; rename to mandatory columns
+    lgu_gdf = (
+        df_shp[["NAME_2", "geometry"]]
+        .copy()
+        .rename(columns={"NAME_2": "LGU"})
+        .reset_index(drop=True)
+    )
+
+    print(
+        f"Downloaded {len(lgu_gdf)} LGU boundaries for {country} "
+        "| Uploading to UC Table"
+    )
+    # gdf_to_uc_table writes all non-geometry columns + geometry_wkt
+    # → the table will have exactly: LGU, geometry_wkt
+    # gdf_to_uc_table(lgu_gdf, table_name)
+    return lgu_gdf
+
+lgu_table = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_lgu_zambia"
+lgu_gdf = extract_gadm_boundaries_lgu(
+    country=COUNTRY,
+    table_name=lgu_table,
+)
+print(f"LGU count: {len(lgu_gdf)}")
+print(lgu_gdf[["LGU"]].head(5))
+
+# COMMAND ----------
+
+print("\n" + "=" * 60)
+print("EXTRACTION COMPLETE")
+print("=" * 60)
+print(f"GADM country boundary: {gadm_table}")
+print(f"GADM LGU boundaries:   {lgu_table}  ({len(lgu_gdf)} LGUs)")
+print(f"Population raster:     {raster_path}")
+print(f"Population table:      {population_table}")
+print(f"Health facilities:     {facilities_table}")
+print("=" * 60)
+
+# COMMAND ----------
+
+def extract_gadm_boundaries_lgu(
+    country_iso3: str,
+    table_name: str,
+    gadm_version: str = "4.1",
+    ad_level: int = 2,
+    force: bool = False,
+) -> gpd.GeoDataFrame:
+    """
+    Downloads GADM boundaries at the specified admin level directly from the
+    UCDAVIS geodata server (supports GADM 4.1 which has all 116 Zambia districts)
+    and saves to UC table with ONLY two columns:
+        - LGU           : district name (NAME_2 for ad_level=2)
+        - geometry_wkt  : polygon geometry in WKT (EPSG:4326)
+
+    Args:
+        country_iso3 : ISO-3 country code  (e.g. "ZMB")
+        table_name   : fully-qualified UC table  (catalog.schema.table)
+        gadm_version : GADM dataset version, default "4.1"
+        ad_level     : admin level to extract  (2 = district/LGU)
+        force        : overwrite even if the table already exists
+
+    Returns:
+        GeoDataFrame with columns [LGU, geometry]
+    """
+    if not force and table_exists(table_name):
+        print(f"LGU boundaries already exist, loading: {table_name}")
+        return uc_table_to_gdf(table_name)
+
+    # ── Build the download URL ────────────────────────────────────────────
+    # Example: https://geodata.ucdavis.edu/gadm/gadm4.1/shp/gadm41_ZMB_shp.zip
+    version_nodot = gadm_version.replace(".", "")
+    zip_url = (
+        f"https://geodata.ucdavis.edu/gadm/gadm{gadm_version}/shp/"
+        f"gadm{version_nodot}_{country_iso3}_shp.zip"
+    )
+    print(f"Downloading GADM {gadm_version} shapefile: {zip_url}")
+
+    # ── Download zip to a temp file on the Volume ─────────────────────────
+    zip_path = os.path.join(VOLUME_DIR, f"gadm{version_nodot}_{country_iso3}_shp.zip")
+
+    if not file_exists(zip_path):
+        urllib.request.urlretrieve(zip_url, zip_path)
+        print(f"  Downloaded: {zip_path}")
+    else:
+        print(f"  Zip already cached: {zip_path}")
+
+    # ── Unzip and read the level-specific shapefile ───────────────────────
+    # The zip contains files named e.g. gadm41_ZMB_0.shp, gadm41_ZMB_1.shp, gadm41_ZMB_2.shp
+    extract_dir = os.path.join(VOLUME_DIR, f"gadm{version_nodot}_{country_iso3}_shp")
+
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        zf.extractall(extract_dir)
+        print(f"  Extracted to: {extract_dir}")
+
+    shp_filename = f"gadm{version_nodot}_{country_iso3}_{ad_level}.shp"
+    shp_path = os.path.join(extract_dir, shp_filename)
+
+    lgu_raw_gdf = gpd.read_file(shp_path)
+    print(f"  Shapefile loaded: {len(lgu_raw_gdf)} features (GADM {gadm_version}, level {ad_level})")
+
+    # ── Normalise to mandatory schema: LGU + geometry ─────────────────────
+    name_col = f"NAME_{ad_level}"          # e.g. NAME_2 for districts
+    if name_col not in lgu_raw_gdf.columns:
+        raise ValueError(
+            f"Expected column '{name_col}' not found. "
+            f"Available: {list(lgu_raw_gdf.columns)}"
+        )
+
+    lgu_gdf = (
+        lgu_raw_gdf[[name_col, "geometry"]]
+        .copy()
+        .rename(columns={name_col: "LGU"})
+        .reset_index(drop=True)
+    )
+
+    # Ensure WGS-84
+    if lgu_gdf.crs is None or lgu_gdf.crs.to_epsg() != 4326:
+        lgu_gdf = lgu_gdf.to_crs(epsg=4326)
+
+    print(
+        f"Normalised to {len(lgu_gdf)} LGU boundaries "
+        f"| Uploading to UC table: {table_name}"
+    )
+    # gdf_to_uc_table produces exactly: LGU, geometry_wkt
+    gdf_to_uc_table(lgu_gdf, table_name)
+    return lgu_gdf
+
+
+# ============================================================
+# ── Execution block — append after health facilities cell ──
+# ============================================================
+
+lgu_table = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_lgu_zambia"
+lgu_gdf = extract_gadm_boundaries_lgu(
+    country_iso3=ISO_3,          # "ZMB"  (already resolved above)
+    table_name=lgu_table,
+    gadm_version="4.1",          # <-- GADM 4.1 = 116 districts
+    ad_level=2,
+)
+print(f"LGU count : {len(lgu_gdf)}")
+print(lgu_gdf[["LGU"]].to_string(max_rows=10))

@@ -753,3 +753,282 @@ print(f"  New facility IDs: {list(new_facility_ids)}")
 print(f"  Coverage: {round(100 * entry['objective'] / total_population, 2)}%")
 
 folium_map
+
+# COMMAND ----------
+
+new_fac_pdf
+
+# COMMAND ----------
+
+TARGET_ACCESS_RATE_PCT = 90.0
+
+# UC table names
+LGU_TABLE             = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_lgu_zambia"
+LGU_ACCESSIBILITY_TABLE = (
+    f"{UC_CATALOG}.{UC_SCHEMA}.lgu_accessibility_results_{COUNTRY_ISO3.lower()}_{distance_name}"
+)
+
+
+# COMMAND ----------
+
+def sanitize_col_name(name: str) -> str:
+    """
+    Converts an LGU display name into a Delta-safe column name.
+    Rules applied (in order):
+      1. Strip leading/trailing whitespace.
+      2. Replace any character that is not alphanumeric or underscore
+         with an underscore  (covers spaces, commas, parens, etc.)
+      3. Collapse consecutive underscores to a single one.
+      4. Strip leading/trailing underscores.
+      5. Prefix with 'lgu_' so the name never starts with a digit.
+    Examples:
+      "Kapiri Mposhi"  → "lgu_Kapiri_Mposhi"
+      "Choma (East)"   → "lgu_Choma_East"
+      "Lusaka"         → "lgu_Lusaka"
+    """
+    s = name.strip()
+    s = re.sub(r"[^A-Za-z0-9_]", "_", s)
+    s = re.sub(r"_+", "_", s)
+    s = s.strip("_")
+    return f"lgu_{s}"
+
+
+print("Building H3 → LGU mapping via Photon polyfill ...")
+
+lgu_raw_sdf = spark.table(LGU_TABLE).select("LGU", "geometry_wkt")
+
+h3_lgu_sdf = (
+    lgu_raw_sdf
+    .select(
+        F.col("LGU"),
+        F.explode(
+            F.expr(f"h3_polyfillash3(geometry_wkt, {H3_RESOLUTION})")
+        ).alias("h3_index"),
+    )
+    .cache()
+)
+
+_lgu_h3_count = h3_lgu_sdf.count()
+
+# Collect all raw LGU names and build the sanitization mapping
+lgu_names_raw = sorted(
+    row["LGU"] for row in h3_lgu_sdf.select("LGU").distinct().collect()
+)
+
+# name_map  : raw display name  → safe Delta column name
+# name_map_r: safe column name  → raw display name  (for display)
+name_map   = {lgu: sanitize_col_name(lgu) for lgu in lgu_names_raw}
+name_map_r = {v: k for k, v in name_map.items()}
+lgu_col_names = [name_map[lgu] for lgu in lgu_names_raw]   # safe names, same order
+
+print(f"  {len(lgu_names_raw)} LGUs → {_lgu_h3_count:,} H3 cells mapped")
+print(f"  Sample name mapping:")
+for raw, safe in list(name_map.items())[:5]:
+    print(f"    '{raw}'  →  '{safe}'")
+
+# COMMAND ----------
+
+print("Pre-aggregating population by (h3_index, LGU) ...")
+
+# Join population AOI table with H3→LGU mapping
+h3_lgu_pop_pdf = (
+    population_aoi_sdf                       # h3_index, population, …
+    .select("h3_index", "population")
+    .join(h3_lgu_sdf, on="h3_index", how="inner")   # adds LGU column
+    .groupBy("h3_index", "LGU")
+    .agg(F.sum("population").alias("pop"))
+    .toPandas()                                      # collected once; ~manageable size
+)
+print(f"  Pre-aggregated {len(h3_lgu_pop_pdf):,} (h3, LGU) rows")
+
+# Per-LGU total population (denominator for % calculation)
+lgu_total_pop: dict[str, float] = (
+    h3_lgu_pop_pdf.groupby("LGU")["pop"].sum().to_dict()
+)
+
+# Lookup table for potential locations  (ID → lat / lon / h3_index)
+potential_lookup = (
+    potential_locations_sdf
+    .select("ID", "lat", "lon", "h3_index")
+    .toPandas()
+    .set_index("ID")
+)
+
+print("Pre-computation complete. Ready for per-step accessibility calculation.")
+
+
+
+# COMMAND ----------
+
+print("Computing per-step LGU accessibility ...")
+n_existing = len(J_existing)
+result_rows = []
+
+for idx, step in enumerate(pareto_results):
+    p            = step["p"]
+    covered_h3_set = set(step["covered_h3"])
+
+    # ── Identify the single new facility added in this step ──────────────
+    prev_selected = (
+        set(pareto_results[idx - 1]["selected_facilities"])
+        if idx > 0
+        else set(J_existing)
+    )
+    new_fac_ids = set(step["selected_facilities"]) - prev_selected
+    new_fac_id  = new_fac_ids.pop() if new_fac_ids else None
+
+    # Retrieve location info from potential_locations lookup
+    if new_fac_id and new_fac_id in potential_lookup.index:
+        fac_lat = float(potential_lookup.at[new_fac_id, "lat"])
+        fac_lon = float(potential_lookup.at[new_fac_id, "lon"])
+        fac_h3  = str(potential_lookup.at[new_fac_id, "h3_index"])
+    else:
+        fac_lat = fac_lon = fac_h3 = None
+
+    # ── National accessibility % ─────────────────────────────────────────
+    national_access_pct = round(step["objective"] * 100.0 / total_population, 2)
+
+    # ── Per-LGU accessibility (vectorised pandas, fast) ──────────────────
+    # Filter the pre-aggregated (h3, LGU, pop) table to covered H3 cells only
+    covered_mask  = h3_lgu_pop_pdf["h3_index"].isin(covered_h3_set)
+    lgu_covered   = (
+        h3_lgu_pop_pdf[covered_mask]
+        .groupby("LGU")["pop"]
+        .sum()
+    )
+
+    # ── Assemble result row ───────────────────────────────────────────────
+    row = {
+        "total_facilities":           n_existing + p,
+        "new_facility":               new_fac_id,
+        "lat":                        fac_lat,
+        "lon":                        fac_lon,
+        "h3_index":                   fac_h3,
+        "total_population_access_pct": national_access_pct,
+    }
+    for lgu_raw in lgu_names_raw:
+        safe_col = name_map[lgu_raw]                    # e.g. "lgu_Kapiri_Mposhi"
+        total    = lgu_total_pop.get(lgu_raw, 0.0)
+        covered  = float(lgu_covered.get(lgu_raw, 0.0))
+        row[safe_col] = round(covered * 100.0 / total, 2) if total > 0 else 0.0
+
+    result_rows.append(row)
+    print(
+        f"  Step {p:3d} | +1 facility ({new_fac_id}) "
+        f"→ national {national_access_pct:.2f}%"
+    )
+
+
+# ── STEP: Identify how many facilities are needed to reach TARGET for all LGUs
+result_pdf = pd.DataFrame(result_rows)
+
+def all_lgus_above_target(row, col_names, target):
+    return all(row[col] >= target for col in col_names)
+
+target_row = result_pdf[
+    result_pdf.apply(
+        all_lgus_above_target, axis=1,
+        col_names=lgu_col_names,
+        target=TARGET_ACCESS_RATE_PCT,
+    )
+]
+if not target_row.empty:
+    first = target_row.iloc[0]
+    print(
+        f"✅  All {len(lgu_names_raw)} LGUs reach ≥{TARGET_ACCESS_RATE_PCT}% access at "
+        f"{int(first['total_facilities'])} total facilities "
+        f"({int(first['total_facilities']) - n_existing} new facilities needed)."
+    )
+else:
+    last = result_pdf.iloc[-1]
+    # Find how many LGUs are still below target
+    below = [
+        lgu_raw for lgu_raw, safe in name_map.items()
+        if last[safe] < TARGET_ACCESS_RATE_PCT
+    ]
+    print(
+        f"⚠️  After {TARGET_NEW_FACILITIES} new facilities, "
+        f"{len(below)} LGUs are still below {TARGET_ACCESS_RATE_PCT}%:\n"
+        f"  {below}\n"
+        f"  Increase TARGET_NEW_FACILITIES and re-run solve_mclp_greedy."
+    )
+print("=" * 60)
+
+
+# COMMAND ----------
+
+# cell 1b — Spatial join: assign 'district' to each new facility in result_pdf
+
+# ── Load district boundaries ──────────────────────────────────────────────────
+print("Loading district boundaries ...")
+boundaries_sdf = spark.table("prd_mega.sgpbpi163.gadm_boundaries_lgu_zambia")
+boundaries_pdf = boundaries_sdf.select("LGU", "geometry_wkt").toPandas()
+
+# Parse WKT strings into Shapely geometries (skip any nulls/malformed rows)
+boundaries_pdf["geometry"] = boundaries_pdf["geometry_wkt"].apply(
+    lambda w: shapely_wkt.loads(w) if isinstance(w, str) and w.strip() else None
+)
+boundaries_pdf = boundaries_pdf.dropna(subset=["geometry"]).reset_index(drop=True)
+
+print(f"  Loaded {len(boundaries_pdf)} district polygons.")
+
+# ── Point-in-polygon lookup ───────────────────────────────────────────────────
+def find_district(lat, lon):
+    """Return the LGU name whose polygon contains (lon, lat), else None."""
+    if lat is None or lon is None or pd.isna(lat) or pd.isna(lon):
+        return None
+    pt = Point(lon, lat)          # Shapely Point is (x=lon, y=lat)
+    for _, row in boundaries_pdf.iterrows():
+        if row["geometry"].contains(pt):
+            return row["LGU"]
+    return None                   # point falls outside all boundaries
+
+print("Assigning district to each facility step ...")
+result_pdf["district"] = result_pdf.apply(
+    lambda r: find_district(r["lat"], r["lon"]), axis=1
+)
+
+# Quick sanity check
+unmatched = result_pdf["district"].isna().sum()
+if unmatched:
+    print(f"  ⚠️  {unmatched} row(s) could not be matched to a district "
+          f"(likely existing / null facilities).")
+print("  ✅ 'district' column added.")
+print(result_pdf[["total_facilities", "new_facility", "lat", "lon", "district"]].to_string())
+
+# COMMAND ----------
+
+print(f"\nWriting LGU accessibility results to: {LGU_ACCESSIBILITY_TABLE}")
+
+# Enforce float type for all LGU columns (Spark requires uniform types)
+for col in lgu_col_names:
+    result_pdf[col] = result_pdf[col].astype(float)
+result_pdf["lat"] = result_pdf["lat"].astype(float)
+result_pdf["lon"] = result_pdf["lon"].astype(float)
+result_pdf["total_population_access_pct"] = result_pdf["total_population_access_pct"].astype(float)
+
+result_sdf = spark.createDataFrame(result_pdf)
+result_sdf.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(
+    LGU_ACCESSIBILITY_TABLE
+)
+
+print(
+    f"Saved: {len(result_pdf)} rows × {len(result_pdf.columns)} columns\n"
+    f"  Columns: total_facilities, new_facility, lat, lon, h3_index, "
+    f"total_population_access_pct, [{len(lgu_col_names)} LGU columns]"
+)
+display(result_sdf)
+
+
+# COMMAND ----------
+
+display(result_sdf)
+
+# COMMAND ----------
+
+  front_cols = ["total_facilities", "new_facility", "district", "lat", "lon", "h3_index", "total_population_access_pct"]
+  result_sdf = result_sdf.select(front_cols + lgu_col_names)
+
+# COMMAND ----------
+
+display(result_sdf)
