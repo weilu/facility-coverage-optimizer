@@ -23,11 +23,7 @@ from rasterio.windows import Window
 from gadm import GADMDownloader
 from pyspark.sql import functions as F
 from pyspark.sql.types import StructType, StructField, DoubleType, StringType
-from shapely.geometry import Point, Polygon
-from shapely.ops import unary_union
-import time
 import zipfile
-import tempfile
 
 # COMMAND ----------
 
