@@ -383,11 +383,6 @@ selected_gadm_gdf = extract_gadm_boundaries(
 
 # COMMAND ----------
 
-
-gdf_to_uc_table(selected_gadm_gdf, gadm_table)
-
-# COMMAND ----------
-
 # Extract WorldPop raster (download to Volume)
 ensure_dir(VOLUME_DIR)
 raster_path = os.path.join(VOLUME_DIR, f"worldpop_{ISO_3.lower()}_{POPULATION_YEAR}.tif")
