@@ -33,11 +33,14 @@ UC_CATALOG = "prd_mega"
 UC_SCHEMA = "sgpbpi163"
 
 COUNTRY_ISO3 = "ZMB"
+ADM_LEVEL1 = "Central"
+ADM_LEVEL2 = None
+
 POPULATION_YEAR = 2025
 
 TRAVEL_API = ""  # "" for buffer, "osm", or "mapbox"
 
-DISTANCE_METERS = 5000
+DISTANCE_METERS = 10000
 dis_km = int(DISTANCE_METERS / 1000)
 distance_name = f"{dis_km}km"
 
@@ -61,7 +64,7 @@ K_RINGS = int(np.ceil(DISTANCE_METERS / H3_EDGE_LENGTH_M[H3_RESOLUTION]))
 
 # Derived table names (input)
 GADM_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_{COUNTRY_ISO3.lower()}"
-FACILITIES_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{COUNTRY_ISO3.lower()}"
+FACILITIES_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{COUNTRY_ISO3.lower()}_osm"
 POPULATION_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.population_{COUNTRY_ISO3.lower()}_{POPULATION_YEAR}"
 
 # Derived table names (cached intermediate results)

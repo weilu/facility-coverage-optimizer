@@ -30,13 +30,14 @@ import zipfile
 # CONFIGURATION
 
 COUNTRY = "Zambia"
-ADM_LEVEL1 = None
+ADM_LEVEL1 = 'Central'
 ADM_LEVEL2 = None
 POPULATION_YEAR = 2025
 
 UC_CATALOG = "prd_mega"
 UC_SCHEMA = "sgpbpi163"
 VOLUME_DIR = f"/Volumes/{UC_CATALOG}/sgpbpi163/vgpbpi163"
+
 
 # COMMAND ----------
 
@@ -105,7 +106,7 @@ def gdf_to_uc_table(gdf: gpd.GeoDataFrame, table_name: str, mode: str = "overwri
             seen.add(col_lower)
     pdf.columns = new_cols
     pdf = pdf.reset_index(drop=True)
-    sdf = spark.createDataFrame(pdf) 
+    sdf = spark.createDataFrame(pdf.to_dict('records')) 
     sdf.write.mode(mode).saveAsTable(table_name)
     print(f"Table saved: {table_name} ({len(gdf)} rows)")
 
@@ -125,6 +126,23 @@ def pdf_to_uc_table(pdf: pd.DataFrame, table_name: str, mode: str = "overwrite")
     sdf = spark.createDataFrame(pdf)
     sdf.write.mode(mode).saveAsTable(table_name)
     print(f"Table saved: {table_name} ({len(pdf)} rows)")
+
+# COMMAND ----------
+
+# RUN EXTRACTION PIPELINE
+
+iso_codes = get_country_codes(COUNTRY)
+ISO_2 = iso_codes["alpha_2"]
+ISO_3 = iso_codes["alpha_3"]
+print(f"Country: {COUNTRY} | ISO-2: {ISO_2} | ISO-3: {ISO_3}")
+
+# COMMAND ----------
+
+
+gadm_table = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_{ISO_3.lower()}"
+population_table = f"{UC_CATALOG}.{UC_SCHEMA}.population_{ISO_3.lower()}_{POPULATION_YEAR}"
+facilities_table = f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{ISO_3.lower()}_osm_{ADM_LEVEL1.lower()}"
+lgu_table = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_lgu_{COUNTRY.lower()}_{ADM_LEVEL1.lower()}"
 
 # COMMAND ----------
 
@@ -156,9 +174,12 @@ def extract_gadm_boundaries(
     else:
         df_shp = downloader.get_shape_data_by_country_name(country_name=country, ad_level=0)
         selected_gadm = df_shp
+
     print("Downloaded the boundaries | Uploading to UC Table")
     gdf_to_uc_table(selected_gadm, table_name)
     return selected_gadm
+
+
 
 
 # COMMAND ----------
@@ -292,7 +313,7 @@ def extract_population_chunked(
 
 # EXTRACT: HEALTH FACILITIES FROM OSM
 
-def extract_health_facilities_osm(iso_2: str, table_name: str, force: bool = False) -> pd.DataFrame:
+def extract_health_facilities_osm(iso_2: str, table_name: str, selected_gadm: gpd.GeoDataFrame, adm_level_name: str = "AOI", force: bool = False) -> pd.DataFrame:
     """
     Queries OSM Overpass API for hospitals and clinics.
     Saves to UC table and returns DataFrame.
@@ -339,9 +360,35 @@ def extract_health_facilities_osm(iso_2: str, table_name: str, force: bool = Fal
         .drop_duplicates(subset="osm_id")
         .reset_index(drop=True)
     )
+    gdf_health = gpd.GeoDataFrame(
+        df_health,
+        geometry=gpd.points_from_xy(df_health.lon, df_health.lat),
+        crs="EPSG:4326"
+    )
 
-    pdf_to_uc_table(df_health, table_name)
-    return df_health
+    # Reproject and spatial join
+    gdf_health = gdf_health.to_crs(selected_gadm.crs)
+    selected_health = gpd.sjoin(gdf_health, selected_gadm, predicate='within')
+    selected_health = selected_health.reset_index().reset_index()
+    selected_health['ID'] = selected_health['level_0'].astype(str)+'_current'
+
+    print(f"Number of hospitals and clinics extracted: {len(gdf_health)}")
+    print(f"Number of facilities in AOI ({adm_level_name}): {len(selected_health)}")
+    selected_health = selected_health.loc[:, ~selected_health.columns.duplicated()]
+
+    # ── Convert geometry → WKT string before writing to Spark ──────────────
+    selected_health_pdf = selected_health.copy()
+    selected_health_pdf["geometry_wkt"] = selected_health_pdf["geometry"].apply(
+        lambda geom: geom.wkt if geom is not None else None
+    )
+    selected_health_pdf = selected_health_pdf.drop(columns=["geometry"])
+    print(selected_health_pdf.columns)
+    selected_health_pdf = selected_health_pdf.rename(columns={
+        "id": "osm_id",  # your constructed id (level_0 + '_current')
+    })
+
+    pdf_to_uc_table(selected_health_pdf, table_name)
+    return selected_health_pdf
 
 # COMMAND ----------
 
@@ -362,17 +409,7 @@ def extract_existing_facilities(input_path: str, table_name: str, force: bool = 
 
 # COMMAND ----------
 
-# RUN EXTRACTION PIPELINE
-
-iso_codes = get_country_codes(COUNTRY)
-ISO_2 = iso_codes["alpha_2"]
-ISO_3 = iso_codes["alpha_3"]
-print(f"Country: {COUNTRY} | ISO-2: {ISO_2} | ISO-3: {ISO_3}")
-
-# COMMAND ----------
-
 # Extract GADM boundaries
-gadm_table = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_{ISO_3.lower()}"
 selected_gadm_gdf = extract_gadm_boundaries(
     country=COUNTRY,
     adm_level1=ADM_LEVEL1,
@@ -396,7 +433,6 @@ extract_worldpop_raster(
 
 # Convert raster to UC table using chunked processing
 # Long-running – takes 7 minutes to process
-population_table = f"{UC_CATALOG}.{UC_SCHEMA}.population_{ISO_3.lower()}_{POPULATION_YEAR}"
 extract_population_chunked(
     raster_path=raster_path,
     table_name=population_table,
@@ -407,8 +443,7 @@ extract_population_chunked(
 
 # Extract health facilities
 # Option A: Query OSM (uncomment to use)
-facilities_table = f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{ISO_3.lower()}_osm"
-extract_health_facilities_osm(ISO_2, facilities_table)
+extract_health_facilities_osm(iso_2= ISO_2, table_name= facilities_table, selected_gadm= selected_gadm_gdf, adm_level_name= ADM_LEVEL1, force=True)
 
 # Option B: Use existing curated file
 # INPUT_FACILITIES_PATH = f"{VOLUME_DIR}/selected_hosp_input_data.geojson"
@@ -522,7 +557,6 @@ def extract_gadm_boundaries_lgu(
 # ── Execution block — append after health facilities cell ──
 # ============================================================
 
-lgu_table = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_lgu_{COUNTRY.lower()}"
 lgu_gdf = extract_gadm_boundaries_lgu(
     country_iso3=ISO_3,          # "ZMB"  (already resolved above)
     table_name=lgu_table,
