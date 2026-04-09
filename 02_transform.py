@@ -34,21 +34,20 @@ print(f"Spark version: {spark.version}")
 # CONFIGURATION
 COUNTRY = "Zambia"
 COUNTRY_ISO3 = "ZMB"
-ADM_LEVEL1 = "Northern"
 ADM_LEVEL2 = None
-
 POPULATION_YEAR = 2025
-
 
 UC_CATALOG = "prd_mega"
 UC_SCHEMA = "sgpbpi163"
 
+# List of admin level 1 regions to process (set to None to process entire country)
+# If empty list [], will process all provinces (requires extraction to have run first)
+ADM_LEVEL1_LIST = ["Northern"]  # e.g., ["Northern", "North-Western"] or [] for all
+
+# List of distances to analyze (in meters)
+DISTANCES_METERS = [5000, 10000]  # e.g., [5000, 10000] for 5km and 10km
+
 TRAVEL_API = ""  # "" for buffer, "osm", or "mapbox"
-
-DISTANCE_METERS = 5000
-dis_km = int(DISTANCE_METERS / 1000)
-distance_name = f"{dis_km}km"
-
 MAPBOX_ACCESS_TOKEN = ""
 MAPBOX_MODE = "driving"
 
@@ -65,44 +64,86 @@ FORCE_RECOMPUTE = False
 # H3 resolution 8 edge length is ~461m
 # k_rings = ceil(distance_meters / edge_length)
 H3_EDGE_LENGTH_M = {4: 22606, 5: 8544, 6: 3229, 7: 1220, 8: 461, 9: 174, 10: 66}
-K_RINGS = int(np.ceil(DISTANCE_METERS / H3_EDGE_LENGTH_M[H3_RESOLUTION]))
 
+
+def get_k_rings(distance_meters: int, h3_resolution: int) -> int:
+    """Calculate number of H3 rings for given distance."""
+    return int(np.ceil(distance_meters / H3_EDGE_LENGTH_M[h3_resolution]))
+
+
+def get_transform_table_names(
+    country: str,
+    iso3: str,
+    adm_level1: str | None,
+    population_year: int,
+    distance_meters: int,
+):
+    """Generate table names for transform step based on configuration."""
+    distance_name = f"{int(distance_meters / 1000)}km"
+
+    if adm_level1 is not None:
+        adm_suffix = f"_{adm_level1.lower().replace('-', '_')}_province"
+        return {
+            "gadm": f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_{iso3.lower()}{adm_suffix}",
+            "facilities": f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{iso3.lower()}_osm{adm_suffix}",
+            "population": f"{UC_CATALOG}.{UC_SCHEMA}.population_{iso3.lower()}_{population_year}{adm_suffix}",
+            "population_aoi": f"{UC_CATALOG}.{UC_SCHEMA}.population_aoi_{iso3.lower()}_{population_year}{adm_suffix}_{distance_name}",
+            "facilities_h3": f"{UC_CATALOG}.{UC_SCHEMA}.facilities_h3_{iso3.lower()}{adm_suffix}_{distance_name}",
+            "facilities_coverage": f"{UC_CATALOG}.{UC_SCHEMA}.facilities_coverage_{iso3.lower()}{adm_suffix}_{distance_name}",
+            "potential_locations": f"{UC_CATALOG}.{UC_SCHEMA}.potential_locations_{iso3.lower()}{adm_suffix}_{distance_name}",
+            "potential_coverage": f"{UC_CATALOG}.{UC_SCHEMA}.potential_coverage_{iso3.lower()}{adm_suffix}_{distance_name}",
+            "lgu": f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_lgu_{country.lower()}",
+            "lgu_accessibility": f"{UC_CATALOG}.{UC_SCHEMA}.lgu_accessibility_results_{iso3.lower()}{adm_suffix}_{distance_name}",
+        }
+    else:
+        return {
+            "gadm": f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_{iso3.lower()}",
+            "facilities": f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{iso3.lower()}",
+            "population": f"{UC_CATALOG}.{UC_SCHEMA}.population_{iso3.lower()}_{population_year}",
+            "population_aoi": f"{UC_CATALOG}.{UC_SCHEMA}.population_aoi_{iso3.lower()}_{population_year}_{distance_name}",
+            "facilities_h3": f"{UC_CATALOG}.{UC_SCHEMA}.facilities_h3_{iso3.lower()}_{distance_name}",
+            "facilities_coverage": f"{UC_CATALOG}.{UC_SCHEMA}.facilities_coverage_{iso3.lower()}_{distance_name}",
+            "potential_locations": f"{UC_CATALOG}.{UC_SCHEMA}.potential_locations_{iso3.lower()}_{distance_name}",
+            "potential_coverage": f"{UC_CATALOG}.{UC_SCHEMA}.potential_coverage_{iso3.lower()}_{distance_name}",
+            "lgu": f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_lgu_{country.lower()}",
+            "lgu_accessibility": f"{UC_CATALOG}.{UC_SCHEMA}.lgu_accessibility_results_{iso3.lower()}_{distance_name}",
+        }
+
+
+# Build list of (province, distance) combinations to process
+transform_combinations = []
+for adm_level1 in ADM_LEVEL1_LIST if ADM_LEVEL1_LIST else [None]:
+    for distance_meters in DISTANCES_METERS:
+        transform_combinations.append((adm_level1, distance_meters))
+
+print(f"Will process {len(transform_combinations)} combination(s):")
+for adm, dist in transform_combinations:
+    region = adm if adm else "Country"
+    print(f"  - {region} @ {int(dist/1000)}km")
 
 # COMMAND ----------
 
-# Derived table names (input)
-# Derived table names (cached intermediate results)
+# For backward compatibility, set up variables for the first combination
+# The full iteration happens at the end of the notebook
+ADM_LEVEL1, DISTANCE_METERS = transform_combinations[0]
+distance_name = f"{int(DISTANCE_METERS / 1000)}km"
+K_RINGS = get_k_rings(DISTANCE_METERS, H3_RESOLUTION)
 
-if ADM_LEVEL1 != None:
-    GADM_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_{COUNTRY_ISO3.lower()}_{ADM_LEVEL1.lower()}_province"
-    FACILITIES_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{COUNTRY_ISO3.lower()}_osm_{ADM_LEVEL1.lower()}_province"
-    POPULATION_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.population_{COUNTRY_ISO3.lower()}_{POPULATION_YEAR}_{ADM_LEVEL1.lower()}_province"
+tables = get_transform_table_names(COUNTRY, COUNTRY_ISO3, ADM_LEVEL1, POPULATION_YEAR, DISTANCE_METERS)
+GADM_TABLE = tables["gadm"]
+FACILITIES_TABLE = tables["facilities"]
+POPULATION_TABLE = tables["population"]
+POPULATION_AOI_TABLE = tables["population_aoi"]
+FACILITIES_H3_TABLE = tables["facilities_h3"]
+FACILITIES_COVERAGE_TABLE = tables["facilities_coverage"]
+POTENTIAL_LOCATIONS_TABLE = tables["potential_locations"]
+POTENTIAL_COVERAGE_TABLE = tables["potential_coverage"]
+LGU_TABLE = tables["lgu"]
+LGU_ACCESSIBILITY_TABLE = tables["lgu_accessibility"]
 
-    POPULATION_AOI_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.population_aoi_{COUNTRY_ISO3.lower()}_{POPULATION_YEAR}_{ADM_LEVEL1.lower()}_province_{distance_name}"
-    FACILITIES_H3_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.facilities_h3_{COUNTRY_ISO3.lower()}_{ADM_LEVEL1.lower()}_province_{distance_name}"
-    FACILITIES_COVERAGE_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.facilities_coverage_{COUNTRY_ISO3.lower()}_{ADM_LEVEL1.lower()}_province_{distance_name}"
-    POTENTIAL_LOCATIONS_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.potential_locations_{COUNTRY_ISO3.lower()}_{ADM_LEVEL1.lower()}_province_{distance_name}"
-    POTENTIAL_COVERAGE_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.potential_coverage_{COUNTRY_ISO3.lower()}_{ADM_LEVEL1.lower()}_province_{distance_name}"
-    LGU_TABLE= f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_lgu_{COUNTRY.lower()}"
-    LGU_ACCESSIBILITY_TABLE = (f"{UC_CATALOG}.{UC_SCHEMA}.lgu_accessibility_results_{COUNTRY_ISO3.lower()}_{ADM_LEVEL1.lower()}_province_{distance_name}")
-
-else:
-    GADM_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_{COUNTRY_ISO3.lower()}"
-    FACILITIES_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{COUNTRY_ISO3.lower()}"
-    POPULATION_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.population_{COUNTRY_ISO3.lower()}_{POPULATION_YEAR}"
-
-    POPULATION_AOI_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.population_aoi_{COUNTRY_ISO3.lower()}_{POPULATION_YEAR}_{distance_name}"
-    FACILITIES_H3_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.facilities_h3_{COUNTRY_ISO3.lower()}_{distance_name}"
-    FACILITIES_COVERAGE_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.facilities_coverage_{COUNTRY_ISO3.lower()}_{distance_name}"
-    POTENTIAL_LOCATIONS_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.potential_locations_{COUNTRY_ISO3.lower()}_{distance_name}"
-    POTENTIAL_COVERAGE_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.potential_coverage_{COUNTRY_ISO3.lower()}_{distance_name}"
-    LGU_TABLE= f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_lgu_{COUNTRY.lower()}"
-    LGU_ACCESSIBILITY_TABLE = (f"{UC_CATALOG}.{UC_SCHEMA}.lgu_accessibility_results_{COUNTRY_ISO3.lower()}_{distance_name}")
-
-# COMMAND ----------
-
+print(f"\nProcessing first combination: {ADM_LEVEL1 if ADM_LEVEL1 else 'Country'} @ {distance_name}")
 print("Population AOI Table:", POPULATION_AOI_TABLE)
-print("Facilities H3 Table:" , FACILITIES_H3_TABLE)
+print("Facilities H3 Table:", FACILITIES_H3_TABLE)
 print("Facilities Coverage Table:", FACILITIES_COVERAGE_TABLE)
 print("Potential Locations Table:", POTENTIAL_LOCATIONS_TABLE)
 print("Potential Coverage Table:", POTENTIAL_COVERAGE_TABLE)
@@ -1020,26 +1061,33 @@ print(result_pdf[["total_facilities", "new_facility", "lat", "lon", "district"]]
 
 # COMMAND ----------
 
-print(f"\nWriting LGU accessibility results to: {LGU_ACCESSIBILITY_TABLE}")
+# Write LGU accessibility results (respects FORCE_RECOMPUTE)
+if not FORCE_RECOMPUTE and table_exists(LGU_ACCESSIBILITY_TABLE):
+    print(f"LGU accessibility table already exists: {LGU_ACCESSIBILITY_TABLE}")
+    print("Set FORCE_RECOMPUTE = True to regenerate.")
+    result_sdf = spark.table(LGU_ACCESSIBILITY_TABLE)
+else:
+    print(f"\nWriting LGU accessibility results to: {LGU_ACCESSIBILITY_TABLE}")
 
-# Enforce float type for all LGU columns (Spark requires uniform types)
-for col in lgu_col_names:
-    result_pdf[col] = result_pdf[col].astype(float)
-result_pdf["lat"] = result_pdf["lat"].astype(float)
-result_pdf["lon"] = result_pdf["lon"].astype(float)
-result_pdf["total_population_access_pct"] = result_pdf["total_population_access_pct"].astype(float)
+    # Enforce float type for all LGU columns (Spark requires uniform types)
+    for col in lgu_col_names:
+        result_pdf[col] = result_pdf[col].astype(float)
+    result_pdf["lat"] = result_pdf["lat"].astype(float)
+    result_pdf["lon"] = result_pdf["lon"].astype(float)
+    result_pdf["total_population_access_pct"] = result_pdf["total_population_access_pct"].astype(float)
 
-result_sdf = spark.createDataFrame(result_pdf)
-front_cols = ["total_facilities", "new_facility", "district", "lat", "lon", "h3_index", "total_population_access_pct"]
-result_sdf = result_sdf.select(front_cols + lgu_col_names)
-result_sdf.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(
-    LGU_ACCESSIBILITY_TABLE
-)
+    result_sdf = spark.createDataFrame(result_pdf)
+    front_cols = ["total_facilities", "new_facility", "district", "lat", "lon", "h3_index", "total_population_access_pct"]
+    result_sdf = result_sdf.select(front_cols + lgu_col_names)
+    result_sdf.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(
+        LGU_ACCESSIBILITY_TABLE
+    )
 
-print(
-    f"Saved: {len(result_pdf)} rows × {len(result_pdf.columns)} columns\n"
-    f"  Columns: total_facilities, new_facility, lat, lon, h3_index, "
-    f"total_population_access_pct, [{len(lgu_col_names)} LGU columns]"
-)
+    print(
+        f"Saved: {len(result_pdf)} rows × {len(result_pdf.columns)} columns\n"
+        f"  Columns: total_facilities, new_facility, lat, lon, h3_index, "
+        f"total_population_access_pct, [{len(lgu_col_names)} LGU columns]"
+    )
+
 display(result_sdf)
 

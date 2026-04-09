@@ -30,13 +30,25 @@ import zipfile
 # CONFIGURATION
 
 COUNTRY = "Zambia"
-ADM_LEVEL1 = "North-Western"
 ADM_LEVEL2 = None
 POPULATION_YEAR = 2025
 
 UC_CATALOG = "prd_mega"
 UC_SCHEMA = "sgpbpi163"
 VOLUME_DIR = f"/Volumes/{UC_CATALOG}/sgpbpi163/vgpbpi163"
+
+# Set to True to recompute cached results even if tables exist
+FORCE_RECOMPUTE = False
+
+# List of admin level 1 regions to process (set to None to process entire country)
+# If empty list [], will auto-discover all provinces from GADM
+ADM_LEVEL1_LIST = []  # e.g., ["Northern", "North-Western"] or [] for all
+
+# Health facilities data source: "osm" or "file"
+# - "osm": Query OpenStreetMap Overpass API for hospitals and clinics
+# - "file": Use existing curated GeoJSON file (set FACILITIES_INPUT_PATH below)
+FACILITIES_SOURCE = "osm"
+FACILITIES_INPUT_PATH = f"{VOLUME_DIR}/selected_hosp_input_data.geojson"
 
 
 # COMMAND ----------
@@ -127,6 +139,34 @@ def pdf_to_uc_table(pdf: pd.DataFrame, table_name: str, mode: str = "overwrite")
     sdf.write.mode(mode).saveAsTable(table_name)
     print(f"Table saved: {table_name} ({len(pdf)} rows)")
 
+
+def get_all_adm_level1_names(country: str) -> list[str]:
+    """Get all admin level 1 (province/state) names for a country from GADM."""
+    downloader = GADMDownloader(version="4.0")
+    df_shp = downloader.get_shape_data_by_country_name(country_name=country, ad_level=1)
+    provinces = sorted(df_shp["NAME_1"].unique().tolist())
+    print(f"Found {len(provinces)} admin level 1 regions: {provinces}")
+    return provinces
+
+
+def get_table_names(country: str, iso3: str, adm_level1: str | None, population_year: int):
+    """Generate table names based on configuration."""
+    if adm_level1 is not None:
+        adm_suffix = f"_{adm_level1.lower().replace('-', '_')}_province"
+        return {
+            "gadm": f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_{iso3.lower()}{adm_suffix}",
+            "population": f"{UC_CATALOG}.{UC_SCHEMA}.population_{iso3.lower()}_{population_year}{adm_suffix}",
+            "facilities": f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{iso3.lower()}_osm{adm_suffix}",
+            "lgu": f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_lgu_{country.lower()}{adm_suffix}",
+        }
+    else:
+        return {
+            "gadm": f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_{iso3.lower()}",
+            "population": f"{UC_CATALOG}.{UC_SCHEMA}.population_{iso3.lower()}_{population_year}",
+            "facilities": f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{iso3.lower()}_osm",
+            "lgu": f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_lgu_{country.lower()}",
+        }
+
 # COMMAND ----------
 
 # RUN EXTRACTION PIPELINE
@@ -136,28 +176,15 @@ ISO_2 = iso_codes["alpha_2"]
 ISO_3 = iso_codes["alpha_3"]
 print(f"Country: {COUNTRY} | ISO-2: {ISO_2} | ISO-3: {ISO_3}")
 
-# COMMAND ----------
-
-
-if ADM_LEVEL1 != None:
-    gadm_table = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_{ISO_3.lower()}_{ADM_LEVEL1.lower()}_province"
-    population_table = f"{UC_CATALOG}.{UC_SCHEMA}.population_{ISO_3.lower()}_{POPULATION_YEAR}_{ADM_LEVEL1.lower()}_province"
-    facilities_table = f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{ISO_3.lower()}_osm_{ADM_LEVEL1.lower()}_province"
-    lgu_table = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_lgu_{COUNTRY.lower()}_{ADM_LEVEL1.lower()}_province"
+# Determine which provinces to process
+if ADM_LEVEL1_LIST == []:
+    provinces_to_process = get_all_adm_level1_names(COUNTRY)
+elif ADM_LEVEL1_LIST is None:
+    provinces_to_process = [None]  # Process entire country
 else:
-    gadm_table = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_{ISO_3.lower()}"
-    population_table = f"{UC_CATALOG}.{UC_SCHEMA}.population_{ISO_3.lower()}_{POPULATION_YEAR}"
-    facilities_table = f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{ISO_3.lower()}_osm"
-    lgu_table = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_lgu_{COUNTRY.lower()}"
+    provinces_to_process = ADM_LEVEL1_LIST
 
-# COMMAND ----------
-
-
-
-print(f"GADM Table: {gadm_table}")
-print(f"Population Table: {population_table}")
-print(f"Facilities Table: {facilities_table}")
-print(f"LGU Table: {lgu_table}")
+print(f"Will process {len(provinces_to_process)} region(s): {provinces_to_process}")
 
 # COMMAND ----------
 
@@ -424,16 +451,7 @@ def extract_existing_facilities(input_path: str, table_name: str, force: bool = 
 
 # COMMAND ----------
 
-# Extract GADM boundaries
-selected_gadm_gdf = extract_gadm_boundaries(
-    country=COUNTRY,
-    adm_level1=ADM_LEVEL1,
-    adm_level2=ADM_LEVEL2,
-    table_name=gadm_table,
-    force=True,
-)
-
-# COMMAND ----------
+# COUNTRY-LEVEL EXTRACTIONS (done once regardless of province selection)
 
 # Extract WorldPop raster (download to Volume)
 ensure_dir(VOLUME_DIR)
@@ -442,40 +460,96 @@ extract_worldpop_raster(
     country_iso3=ISO_3,
     population_year=POPULATION_YEAR,
     output_path=raster_path,
+    force=FORCE_RECOMPUTE,
 )
 
 # COMMAND ----------
 
-# Convert raster to UC table using chunked processing
-# Long-running – takes 7 minutes to process
+# Convert raster to UC table using chunked processing (country-level)
+# Long-running – takes 7 minutes to process
+country_population_table = f"{UC_CATALOG}.{UC_SCHEMA}.population_{ISO_3.lower()}_{POPULATION_YEAR}"
 extract_population_chunked(
     raster_path=raster_path,
-    table_name=population_table,
+    table_name=country_population_table,
     chunk_size=1024,
+    force=FORCE_RECOMPUTE,
 )
 
 # COMMAND ----------
 
-# Extract health facilities
-# Option A: Query OSM (uncomment to use)
-extract_health_facilities_osm(iso_2= ISO_2, table_name= facilities_table, selected_gadm= selected_gadm_gdf, adm_level_name= ADM_LEVEL1, force=True)
+# PROVINCE-LEVEL EXTRACTIONS (loop over all configured provinces)
 
-# Option B: Use existing curated file
-# INPUT_FACILITIES_PATH = f"{VOLUME_DIR}/selected_hosp_input_data.geojson"
-# facilities_table = f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{ISO_3.lower()}"
-# extract_existing_facilities(INPUT_FACILITIES_PATH, facilities_table)
+extraction_results = []
+
+for adm_level1 in provinces_to_process:
+    print("\n" + "=" * 60)
+    print(f"PROCESSING: {adm_level1 if adm_level1 else 'ENTIRE COUNTRY'}")
+    print("=" * 60)
+
+    # Generate table names for this province
+    tables = get_table_names(COUNTRY, ISO_3, adm_level1, POPULATION_YEAR)
+    gadm_table = tables["gadm"]
+    population_table = tables["population"]
+    facilities_table = tables["facilities"]
+    lgu_table = tables["lgu"]
+
+    print(f"  GADM Table: {gadm_table}")
+    print(f"  Population Table: {population_table}")
+    print(f"  Facilities Table: {facilities_table}")
+    print(f"  LGU Table: {lgu_table}")
+
+    # Extract GADM boundaries for this province
+    selected_gadm_gdf = extract_gadm_boundaries(
+        country=COUNTRY,
+        adm_level1=adm_level1,
+        adm_level2=ADM_LEVEL2,
+        table_name=gadm_table,
+        force=FORCE_RECOMPUTE,
+    )
+
+    # Extract health facilities for this province
+    if FACILITIES_SOURCE == "osm":
+        extract_health_facilities_osm(
+            iso_2=ISO_2,
+            table_name=facilities_table,
+            selected_gadm=selected_gadm_gdf,
+            adm_level_name=adm_level1 if adm_level1 else "Country",
+            force=FORCE_RECOMPUTE,
+        )
+    elif FACILITIES_SOURCE == "file":
+        if FACILITIES_INPUT_PATH is None:
+            raise ValueError("FACILITIES_SOURCE='file' but FACILITIES_INPUT_PATH is not set")
+        extract_existing_facilities(
+            input_path=FACILITIES_INPUT_PATH,
+            table_name=facilities_table,
+            force=FORCE_RECOMPUTE,
+        )
+    else:
+        raise ValueError(f"Invalid FACILITIES_SOURCE: {FACILITIES_SOURCE}. Use 'osm' or 'file'.")
+
+    extraction_results.append({
+        "adm_level1": adm_level1,
+        "gadm_table": gadm_table,
+        "population_table": population_table,
+        "facilities_table": facilities_table,
+        "lgu_table": lgu_table,
+    })
+
+    print(f"  Completed: {adm_level1 if adm_level1 else 'ENTIRE COUNTRY'}")
 
 # COMMAND ----------
 
-# EXTRACTION SUMMARY
+# EXTRACTION SUMMARY (after province loop)
 
 print("\n" + "=" * 60)
-print("EXTRACTION COMPLETE")
+print("ALL PROVINCE EXTRACTIONS COMPLETE")
 print("=" * 60)
-print(f"GADM boundaries:    {gadm_table}")
-print(f"Population raster:  {raster_path}")
-print(f"Population table:   {population_table}")
-print(f"Health facilities:  {facilities_table}")
+print(f"Population raster (country): {raster_path}")
+print(f"Population table (country):  {country_population_table}")
+print(f"Regions processed: {len(extraction_results)}")
+for result in extraction_results:
+    region = result["adm_level1"] if result["adm_level1"] else "Country"
+    print(f"  - {region}: {result['gadm_table']}")
 print("=" * 60)
 
 # COMMAND ----------
@@ -569,26 +643,33 @@ def extract_gadm_boundaries_lgu(
 
 
 # ============================================================
-# ── Execution block — append after health facilities cell ──
+# EXTRACT: LGU (DISTRICT) BOUNDARIES (country-level, done once)
 # ============================================================
 
+country_lgu_table = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_lgu_{COUNTRY.lower()}"
 lgu_gdf = extract_gadm_boundaries_lgu(
-    country_iso3=ISO_3,          # "ZMB"  (already resolved above)
-    table_name=lgu_table,
-    gadm_version="4.1",          # <-- GADM 4.1 = 116 districts
+    country_iso3=ISO_3,
+    table_name=country_lgu_table,
+    gadm_version="4.1",
     ad_level=2,
+    force=FORCE_RECOMPUTE,
 )
 print(f"LGU count : {len(lgu_gdf)}")
 print(lgu_gdf[["LGU"]].to_string(max_rows=10))
 
 # COMMAND ----------
 
+# FINAL EXTRACTION SUMMARY
+
 print("\n" + "=" * 60)
-print("EXTRACTION COMPLETE")
+print("ALL EXTRACTIONS COMPLETE")
 print("=" * 60)
-print(f"GADM country boundary: {gadm_table}")
-print(f"GADM LGU boundaries:   {lgu_table}  ({len(lgu_gdf)} LGUs)")
+print(f"Country: {COUNTRY} ({ISO_3})")
 print(f"Population raster:     {raster_path}")
-print(f"Population table:      {population_table}")
-print(f"Health facilities:     {facilities_table}")
+print(f"Population table:      {country_population_table}")
+print(f"LGU boundaries:        {country_lgu_table} ({len(lgu_gdf)} LGUs)")
+print(f"Provinces processed:   {len(extraction_results)}")
+for result in extraction_results:
+    region = result["adm_level1"] if result["adm_level1"] else "Country"
+    print(f"  - {region}")
 print("=" * 60)
