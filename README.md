@@ -8,7 +8,7 @@ See [docs/optimization_approach.md](docs/optimization_approach.md) for details o
 
 | Script | Purpose |
 |--------|---------|
-| `01_extract.py` | Downloads and prepares source data (GADM boundaries, WorldPop raster, health facilities) |
+| `01_extract.py` | Downloads and prepares source data (World Bank boundaries, WorldPop raster, health facilities) |
 | `02_transform.py` | Computes coverage, runs optimization, visualizes results |
 
 ## Configuration
@@ -18,9 +18,9 @@ Edit the configuration section at the top of each script:
 **01_extract.py**
 ```python
 COUNTRY = "Zambia"        # Country name
-ADM_LEVEL1 = None         # Province filter (None = whole country)
-ADM_LEVEL2 = None         # District filter
+ADM_LEVEL1_LIST = []      # Province filter ([] = all provinces, None = whole country)
 POPULATION_YEAR = 2025
+FACILITIES_SOURCE = "osm" # "osm" or "file" (curated GeoJSON)
 ```
 
 **02_transform.py**

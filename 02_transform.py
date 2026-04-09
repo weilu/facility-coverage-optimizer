@@ -34,7 +34,6 @@ print(f"Spark version: {spark.version}")
 # CONFIGURATION
 COUNTRY = "Zambia"
 COUNTRY_ISO3 = "ZMB"
-ADM_LEVEL2 = None
 POPULATION_YEAR = 2025
 
 UC_CATALOG = "prd_mega"
@@ -84,7 +83,7 @@ def get_transform_table_names(
     if adm_level1 is not None:
         adm_suffix = f"_{adm_level1.lower().replace('-', '_')}_province"
         return {
-            "gadm": f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_{iso3.lower()}{adm_suffix}",
+            "boundaries": f"{UC_CATALOG}.{UC_SCHEMA}.wb_boundaries_{iso3.lower()}{adm_suffix}",
             "facilities": f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{iso3.lower()}_osm{adm_suffix}",
             "population": f"{UC_CATALOG}.{UC_SCHEMA}.population_{iso3.lower()}_{population_year}{adm_suffix}",
             "population_aoi": f"{UC_CATALOG}.{UC_SCHEMA}.population_aoi_{iso3.lower()}_{population_year}{adm_suffix}_{distance_name}",
@@ -92,12 +91,12 @@ def get_transform_table_names(
             "facilities_coverage": f"{UC_CATALOG}.{UC_SCHEMA}.facilities_coverage_{iso3.lower()}{adm_suffix}_{distance_name}",
             "potential_locations": f"{UC_CATALOG}.{UC_SCHEMA}.potential_locations_{iso3.lower()}{adm_suffix}_{distance_name}",
             "potential_coverage": f"{UC_CATALOG}.{UC_SCHEMA}.potential_coverage_{iso3.lower()}{adm_suffix}_{distance_name}",
-            "lgu": f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_lgu_{country.lower()}",
+            "lgu": f"{UC_CATALOG}.{UC_SCHEMA}.wb_boundaries_lgu_{country.lower()}",
             "lgu_accessibility": f"{UC_CATALOG}.{UC_SCHEMA}.lgu_accessibility_results_{iso3.lower()}{adm_suffix}_{distance_name}",
         }
     else:
         return {
-            "gadm": f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_{iso3.lower()}",
+            "boundaries": f"{UC_CATALOG}.{UC_SCHEMA}.wb_boundaries_{iso3.lower()}",
             "facilities": f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{iso3.lower()}",
             "population": f"{UC_CATALOG}.{UC_SCHEMA}.population_{iso3.lower()}_{population_year}",
             "population_aoi": f"{UC_CATALOG}.{UC_SCHEMA}.population_aoi_{iso3.lower()}_{population_year}_{distance_name}",
@@ -105,7 +104,7 @@ def get_transform_table_names(
             "facilities_coverage": f"{UC_CATALOG}.{UC_SCHEMA}.facilities_coverage_{iso3.lower()}_{distance_name}",
             "potential_locations": f"{UC_CATALOG}.{UC_SCHEMA}.potential_locations_{iso3.lower()}_{distance_name}",
             "potential_coverage": f"{UC_CATALOG}.{UC_SCHEMA}.potential_coverage_{iso3.lower()}_{distance_name}",
-            "lgu": f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_lgu_{country.lower()}",
+            "lgu": f"{UC_CATALOG}.{UC_SCHEMA}.wb_boundaries_lgu_{country.lower()}",
             "lgu_accessibility": f"{UC_CATALOG}.{UC_SCHEMA}.lgu_accessibility_results_{iso3.lower()}_{distance_name}",
         }
 
@@ -130,7 +129,7 @@ distance_name = f"{int(DISTANCE_METERS / 1000)}km"
 K_RINGS = get_k_rings(DISTANCE_METERS, H3_RESOLUTION)
 
 tables = get_transform_table_names(COUNTRY, COUNTRY_ISO3, ADM_LEVEL1, POPULATION_YEAR, DISTANCE_METERS)
-GADM_TABLE = tables["gadm"]
+BOUNDARIES_TABLE = tables["boundaries"]
 FACILITIES_TABLE = tables["facilities"]
 POPULATION_TABLE = tables["population"]
 POPULATION_AOI_TABLE = tables["population_aoi"]
@@ -190,16 +189,16 @@ def uc_table_to_gdf(table_name: str) -> gpd.GeoDataFrame:
 
 print("Loading extracted data from Unity Catalog...")
 
-selected_gadm_gdf = uc_table_to_gdf(GADM_TABLE)
-print(f"  GADM boundaries: {len(selected_gadm_gdf)} features from {GADM_TABLE}")
+selected_boundary_gdf = uc_table_to_gdf(BOUNDARIES_TABLE)
+print(f"  Boundaries: {len(selected_boundary_gdf)} features from {BOUNDARIES_TABLE}")
 
 facilities_gdf = uc_table_to_gdf(FACILITIES_TABLE)
 print(f"  Health facilities: {len(facilities_gdf)} facilities from {FACILITIES_TABLE}")
 
-boundary_wkt = selected_gadm_gdf.geometry.unary_union.wkt
-aoi_union_geom = selected_gadm_gdf.geometry.unary_union
+boundary_wkt = selected_boundary_gdf.geometry.unary_union.wkt
+aoi_union_geom = selected_boundary_gdf.geometry.unary_union
 
-centroid = selected_gadm_gdf.iloc[0]["geometry"].centroid
+centroid = selected_boundary_gdf.iloc[0]["geometry"].centroid
 CENTER_LAT = centroid.y
 CENTER_LON = centroid.x
 print(f"  Map center: lat={CENTER_LAT:.4f}, lon={CENTER_LON:.4f}")
@@ -556,7 +555,7 @@ selected_hosp_pdf_viz = selected_hosp_sdf.select("ID", "lon", "lat", "pop_with_a
 
 folium_map = fl.Map(location=[CENTER_LAT, CENTER_LON], zoom_start=8, tiles="OpenStreetMap")
 geo_adm = fl.GeoJson(
-    data=selected_gadm_gdf.iloc[0]["geometry"].__geo_interface__,
+    data=selected_boundary_gdf.iloc[0]["geometry"].__geo_interface__,
     style_function=lambda x: {"color": "orange"},
 )
 geo_adm.add_to(folium_map)
@@ -787,7 +786,7 @@ pop_uncovered_pdf = pop_uncovered_sdf.sample(
 
 folium_map = fl.Map(location=[CENTER_LAT, CENTER_LON], zoom_start=8, tiles="OpenStreetMap")
 geo_adm = fl.GeoJson(
-    data=selected_gadm_gdf.iloc[0]["geometry"].__geo_interface__,
+    data=selected_boundary_gdf.iloc[0]["geometry"].__geo_interface__,
     style_function=lambda x: {"color": "orange"},
 )
 geo_adm.add_to(folium_map)
