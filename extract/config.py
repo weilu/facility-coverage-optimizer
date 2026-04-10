@@ -5,17 +5,19 @@
 # COMMAND ----------
 
 # Import shared utilities
-from shared.core import get_country_codes, get_extract_table_names
+from shared.core import get_extract_table_names
+from shared.settings import (
+    UC_CATALOG,
+    UC_SCHEMA,
+    COUNTRY,
+    ISO_3,
+    POPULATION_YEAR,
+)
 
 # COMMAND ----------
 
 # CONFIGURATION
 
-COUNTRY = "Zambia"
-POPULATION_YEAR = 2025
-
-UC_CATALOG = "prd_mega"
-UC_SCHEMA = "sgpbpi163"
 VOLUME_DIR = f"/Volumes/{UC_CATALOG}/{UC_SCHEMA}/vgpbpi163"
 
 # Set to True to recompute cached results even if tables exist
@@ -39,11 +41,7 @@ WB_ADMIN2_URL = f"{WB_BOUNDARIES_BASE_URL}/World%20Bank%20Official%20Boundaries%
 
 # COMMAND ----------
 
-# DERIVED CONFIGURATION (computed at import time)
-
-_iso_codes = get_country_codes(COUNTRY)
-ISO_2 = _iso_codes["alpha_2"]
-ISO_3 = _iso_codes["alpha_3"]
+# DERIVED CONFIGURATION
 
 COUNTRY_POPULATION_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.population_{ISO_3.lower()}_{POPULATION_YEAR}"
 COUNTRY_LGU_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.wb_boundaries_lgu_{COUNTRY.lower()}"

@@ -11,17 +11,17 @@ from shared.core import (
     build_transform_combinations as _build_transform_combinations,
     H3_EDGE_LENGTH_M,
 )
+from shared.settings import (
+    UC_CATALOG,
+    UC_SCHEMA,
+    COUNTRY,
+    ISO_3 as COUNTRY_ISO3,
+    POPULATION_YEAR,
+)
 
 # COMMAND ----------
 
 # CONFIGURATION
-
-COUNTRY = "Zambia"
-COUNTRY_ISO3 = "ZMB"
-POPULATION_YEAR = 2025
-
-UC_CATALOG = "prd_mega"
-UC_SCHEMA = "sgpbpi163"
 
 # List of admin level 1 regions to process (set to None to process entire country)
 # If empty list [], will process all provinces (requires extraction to have run first)
