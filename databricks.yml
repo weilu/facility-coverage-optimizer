@@ -1,0 +1,98 @@
+bundle:
+  name: health-facility-optimizer
+
+variables:
+  workspace_root:
+    description: "Workspace root path for notebooks"
+  uc_schema:
+    description: "Unity Catalog schema (passed to notebooks via dbutils.widgets)"
+  cluster_id:
+    description: "Existing cluster ID (find via: databricks clusters list)"
+
+targets:
+  dev-wei:
+    workspace:
+      profile: adb-6102124407836814
+    variables:
+      workspace_root: /Workspace/Users/wlu4@worldbank.org/facility-coverage-optimizer
+      uc_schema: pim
+      cluster_id: 0212-012600-43y69ksy  # ITSDA_DAP_TEAM_gpbpinfrastructureanalysispimpam
+
+# Reusable definitions
+x-notebook-defaults: &notebook_defaults
+  base_parameters:
+    UC_SCHEMA: ${var.uc_schema}
+
+resources:
+  jobs:
+    extract_pipeline:
+      name: "HFO - Extract Pipeline"
+      tasks:
+        - task_key: download_worldpop
+          existing_cluster_id: ${var.cluster_id}
+          notebook_task:
+            notebook_path: ${var.workspace_root}/extract/01a_download_worldpop
+            <<: *notebook_defaults
+
+        - task_key: download_wb
+          existing_cluster_id: ${var.cluster_id}
+          notebook_task:
+            notebook_path: ${var.workspace_root}/extract/01b_download_wb
+            <<: *notebook_defaults
+
+        - task_key: population
+          existing_cluster_id: ${var.cluster_id}
+          depends_on:
+            - task_key: download_worldpop
+          notebook_task:
+            notebook_path: ${var.workspace_root}/extract/02_population
+            <<: *notebook_defaults
+
+        - task_key: boundaries
+          existing_cluster_id: ${var.cluster_id}
+          depends_on:
+            - task_key: download_wb
+          notebook_task:
+            notebook_path: ${var.workspace_root}/extract/03_boundaries
+            <<: *notebook_defaults
+
+        - task_key: facilities
+          existing_cluster_id: ${var.cluster_id}
+          depends_on:
+            - task_key: boundaries
+          notebook_task:
+            notebook_path: ${var.workspace_root}/extract/04_facilities
+            <<: *notebook_defaults
+
+    transform_pipeline:
+      name: "HFO - Transform Pipeline"
+      tasks:
+        - task_key: prepare
+          existing_cluster_id: ${var.cluster_id}
+          notebook_task:
+            notebook_path: ${var.workspace_root}/transform/01_prepare
+            <<: *notebook_defaults
+
+        - task_key: coverage
+          existing_cluster_id: ${var.cluster_id}
+          depends_on:
+            - task_key: prepare
+          notebook_task:
+            notebook_path: ${var.workspace_root}/transform/02_coverage
+            <<: *notebook_defaults
+
+        - task_key: optimize
+          existing_cluster_id: ${var.cluster_id}
+          depends_on:
+            - task_key: coverage
+          notebook_task:
+            notebook_path: ${var.workspace_root}/transform/03_optimize
+            <<: *notebook_defaults
+
+        - task_key: lgu_metrics
+          existing_cluster_id: ${var.cluster_id}
+          depends_on:
+            - task_key: optimize
+          notebook_task:
+            notebook_path: ${var.workspace_root}/transform/04_lgu_metrics
+            <<: *notebook_defaults
