@@ -244,7 +244,7 @@ class DatabricksStorageBackend:
         pdf = pdf.reset_index(drop=True)
 
         sdf = self.spark.createDataFrame(pdf.to_dict("records"))
-        sdf.write.mode(mode).saveAsTable(table_name)
+        sdf.write.mode(mode).option("overwriteSchema", "true").saveAsTable(table_name)
         print(f"Table saved: {table_name} ({len(gdf)} rows)")
 
     def load_gdf(self, table_name: str) -> gpd.GeoDataFrame:
@@ -257,7 +257,7 @@ class DatabricksStorageBackend:
     def save_pdf(self, pdf: pd.DataFrame, table_name: str, mode: str = "overwrite") -> None:
         """Save pandas DataFrame to Unity Catalog table."""
         sdf = self.spark.createDataFrame(pdf)
-        sdf.write.mode(mode).saveAsTable(table_name)
+        sdf.write.mode(mode).option("overwriteSchema", "true").saveAsTable(table_name)
         print(f"Table saved: {table_name} ({len(pdf)} rows)")
 
     def load_pdf(self, table_name: str) -> pd.DataFrame:
