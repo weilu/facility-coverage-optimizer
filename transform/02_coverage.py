@@ -130,8 +130,8 @@ def compute_coverage_h3(
     )
 
     # Save to UC tables
-    result_sdf.write.mode("overwrite").saveAsTable(facilities_output_table)
-    flat_sdf.write.mode("overwrite").saveAsTable(coverage_output_table)
+    result_sdf.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(facilities_output_table)
+    flat_sdf.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(coverage_output_table)
     print(f"  Saved to: {facilities_output_table}, {coverage_output_table}")
 
     return spark.table(facilities_output_table).cache(), spark.table(coverage_output_table)
