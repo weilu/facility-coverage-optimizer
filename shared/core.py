@@ -8,30 +8,6 @@ import numpy as np
 H3_EDGE_LENGTH_M = {4: 22606, 5: 8544, 6: 3229, 7: 1220, 8: 461, 9: 174, 10: 66}
 
 
-def get_country_codes(country_name: str) -> dict | None:
-    """
-    Look up ISO codes for a country name.
-
-    Args:
-        country_name: Country name (e.g., "Zambia", "United States")
-
-    Returns:
-        Dictionary with name, alpha_2, alpha_3, numeric codes, or None if not found
-    """
-    import pycountry
-
-    try:
-        country = pycountry.countries.lookup(country_name)
-        return {
-            "name": country.name,
-            "alpha_2": country.alpha_2,
-            "alpha_3": country.alpha_3,
-            "numeric": country.numeric,
-        }
-    except LookupError:
-        return None
-
-
 def get_k_rings(distance_meters: int, h3_resolution: int) -> int:
     """
     Calculate number of H3 rings needed to cover a given distance.
@@ -69,38 +45,6 @@ def sanitize_col_name(name: str) -> str:
     s = re.sub(r"_+", "_", s)
     s = s.strip("_")
     return f"lgu_{s}"
-
-
-def generate_table_name(
-    catalog: str,
-    schema: str,
-    base_name: str,
-    iso3: str,
-    adm_level1: str | None = None,
-    suffix: str = "",
-) -> str:
-    """
-    Generate a Unity Catalog table name with consistent naming conventions.
-
-    Args:
-        catalog: UC catalog name
-        schema: UC schema name
-        base_name: Base table name (e.g., "wb_boundaries", "population")
-        iso3: ISO 3-letter country code
-        adm_level1: Optional admin level 1 region name
-        suffix: Optional suffix (e.g., "_5km")
-
-    Returns:
-        Fully qualified table name
-    """
-    parts = [base_name, iso3.lower()]
-
-    if adm_level1 is not None:
-        adm_suffix = adm_level1.lower().replace("-", "_").replace(" ", "_")
-        parts.append(f"{adm_suffix}_province")
-
-    table_name = "_".join(parts) + suffix
-    return f"{catalog}.{schema}.{table_name}"
 
 
 def get_extract_table_names(

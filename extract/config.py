@@ -5,7 +5,10 @@
 # COMMAND ----------
 
 # Import shared utilities
+import os
+import geopandas as gpd
 from shared.core import get_extract_table_names
+from shared.env import file_exists
 from shared.settings import (
     UC_CATALOG,
     UC_SCHEMA,
@@ -57,3 +60,32 @@ def get_table_names(country: str, iso3: str, adm_level1: str | None, population_
     return get_extract_table_names(
         UC_CATALOG, UC_SCHEMA, country, iso3, adm_level1, population_year
     )
+
+
+def load_cached_wb_boundaries(admin_level: int) -> gpd.GeoDataFrame:
+    """Load cached World Bank boundaries GeoJSON."""
+    if admin_level == 0:
+        cache_path = os.path.join(VOLUME_DIR, "wb_admin0.geojson")
+    elif admin_level == 1:
+        cache_path = os.path.join(VOLUME_DIR, "wb_admin1.geojson")
+    elif admin_level == 2:
+        cache_path = os.path.join(VOLUME_DIR, "wb_admin2.geojson")
+    else:
+        raise ValueError(f"Invalid admin_level: {admin_level}")
+
+    if not file_exists(cache_path):
+        raise FileNotFoundError(
+            f"WB boundaries not cached: {cache_path}. "
+            "Run 01b_download_wb.py first."
+        )
+
+    return gpd.read_file(cache_path)
+
+
+def get_all_adm_level1_names(country_iso3: str) -> list[str]:
+    """Get all admin level 1 (province/state) names for a country."""
+    gdf = load_cached_wb_boundaries(admin_level=1)
+    gdf_country = gdf[gdf["ISO_A3"] == country_iso3]
+    provinces = sorted(gdf_country["NAM_1"].unique().tolist())
+    print(f"Found {len(provinces)} admin level 1 regions (WB): {provinces}")
+    return provinces

@@ -1,5 +1,5 @@
 # Databricks notebook source
-# MAGIC %pip install geopandas shapely pycountry scikit-learn
+# MAGIC %pip install geopandas shapely scikit-learn
 
 # COMMAND ----------
 

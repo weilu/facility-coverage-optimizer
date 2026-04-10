@@ -2,47 +2,14 @@
 
 import pytest
 from shared.core import (
-    get_country_codes,
     get_k_rings,
     sanitize_col_name,
-    generate_table_name,
     get_extract_table_names,
     get_transform_table_names,
     build_transform_combinations,
     solve_mclp_greedy,
     deduplicate_columns,
 )
-
-
-class TestGetCountryCodes:
-    """Tests for get_country_codes function."""
-
-    def test_valid_country_name(self):
-        result = get_country_codes("Zambia")
-        assert result is not None
-        assert result["name"] == "Zambia"
-        assert result["alpha_2"] == "ZM"
-        assert result["alpha_3"] == "ZMB"
-        assert result["numeric"] == "894"
-
-    def test_valid_country_usa(self):
-        result = get_country_codes("United States")
-        assert result is not None
-        assert result["alpha_2"] == "US"
-        assert result["alpha_3"] == "USA"
-
-    def test_valid_country_by_code(self):
-        result = get_country_codes("ZMB")
-        assert result is not None
-        assert result["name"] == "Zambia"
-
-    def test_invalid_country(self):
-        result = get_country_codes("Nonexistent Country")
-        assert result is None
-
-    def test_empty_string(self):
-        result = get_country_codes("")
-        assert result is None
 
 
 class TestGetKRings:
@@ -102,26 +69,6 @@ class TestSanitizeColName:
     def test_numeric_start(self):
         # Should prefix with lgu_ to avoid starting with digit
         assert sanitize_col_name("123District") == "lgu_123District"
-
-
-class TestGenerateTableName:
-    """Tests for generate_table_name function."""
-
-    def test_basic_table_name(self):
-        result = generate_table_name("catalog", "schema", "population", "ZMB")
-        assert result == "catalog.schema.population_zmb"
-
-    def test_with_adm_level1(self):
-        result = generate_table_name("catalog", "schema", "population", "ZMB", "Northern")
-        assert result == "catalog.schema.population_zmb_northern_province"
-
-    def test_with_suffix(self):
-        result = generate_table_name("catalog", "schema", "facilities", "ZMB", suffix="_5km")
-        assert result == "catalog.schema.facilities_zmb_5km"
-
-    def test_with_adm_level1_and_suffix(self):
-        result = generate_table_name("catalog", "schema", "coverage", "ZMB", "North-Western", "_10km")
-        assert result == "catalog.schema.coverage_zmb_north_western_province_10km"
 
 
 class TestGetExtractTableNames:

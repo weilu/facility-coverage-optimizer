@@ -1,5 +1,5 @@
 # Databricks notebook source
-# MAGIC %pip install geopandas shapely pycountry
+# MAGIC %pip install geopandas shapely
 
 # COMMAND ----------
 
@@ -34,50 +34,22 @@ from shared.env import (
     gdf_to_uc_table,
     uc_table_to_gdf,
     table_exists,
-    file_exists,
 )
 from extract.config import (
     COUNTRY,
     ISO_3,
-    VOLUME_DIR,
     FORCE_RECOMPUTE,
     ADM_LEVEL1_LIST,
     get_table_names,
     COUNTRY_LGU_TABLE,
     POPULATION_YEAR,
+    load_cached_wb_boundaries,
+    get_all_adm_level1_names,
 )
 
 spark = get_spark()
 
 # COMMAND ----------
-
-def load_cached_wb_boundaries(admin_level: int) -> gpd.GeoDataFrame:
-    """Load cached World Bank boundaries GeoJSON."""
-    if admin_level == 0:
-        cache_path = os.path.join(VOLUME_DIR, "wb_admin0.geojson")
-    elif admin_level == 1:
-        cache_path = os.path.join(VOLUME_DIR, "wb_admin1.geojson")
-    elif admin_level == 2:
-        cache_path = os.path.join(VOLUME_DIR, "wb_admin2.geojson")
-    else:
-        raise ValueError(f"Invalid admin_level: {admin_level}")
-
-    if not file_exists(cache_path):
-        raise FileNotFoundError(
-            f"WB boundaries not cached: {cache_path}. "
-            "Run 01b_download_wb.py first."
-        )
-
-    return gpd.read_file(cache_path)
-
-
-def get_all_adm_level1_names(country_iso3: str) -> list[str]:
-    """Get all admin level 1 (province/state) names for a country from World Bank boundaries."""
-    gdf = load_cached_wb_boundaries(admin_level=1)
-    gdf_country = gdf[gdf["ISO_A3"] == country_iso3]
-    provinces = sorted(gdf_country["NAM_1"].unique().tolist())
-    print(f"Found {len(provinces)} admin level 1 regions (WB): {provinces}")
-    return provinces
 
 
 def extract_boundaries(
