@@ -43,10 +43,12 @@ else:
 
 # CONFIGURATION
 
+# Include country-level (ADM0) processing
+INCLUDE_ADM_LEVEL0 = True
+
 # List of admin level 1 regions to process:
-#   - None: process entire country
-#   - []: auto-discover provinces from existing UC boundary tables
-#   - ["Northern", "Lusaka"]: process specific provinces
+#   - []: all provinces (auto-discovered from UC)
+#   - ["Northern", "Lusaka"]: specific provinces only
 ADM_LEVEL1_LIST = []
 
 # List of distances to analyze (in meters)
@@ -99,7 +101,16 @@ def _get_adm_level1_names_from_uc() -> list[str]:
 
 def build_transform_combinations():
     """Build list of (province, distance) combinations to process."""
-    adm_list = ADM_LEVEL1_LIST
-    if adm_list == []:
-        adm_list = _get_adm_level1_names_from_uc()
+    adm_list = []
+
+    # ADM0 (country-level)
+    if INCLUDE_ADM_LEVEL0:
+        adm_list.append(None)
+
+    # ADM1 (provinces)
+    if ADM_LEVEL1_LIST == []:
+        adm_list.extend(_get_adm_level1_names_from_uc())
+    else:
+        adm_list.extend(ADM_LEVEL1_LIST)
+
     return _build_transform_combinations(adm_list, DISTANCES_METERS)

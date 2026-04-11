@@ -39,9 +39,13 @@ VOLUME_DIR = f"/Volumes/{UC_CATALOG}/sgpbpi163/vgpbpi163"
 # Set to True to recompute cached results even if tables exist
 FORCE_RECOMPUTE = False
 
-# List of admin level 1 regions to process (set to None to process entire country)
-# If empty list [], will auto-discover all provinces from World Bank boundaries
-ADM_LEVEL1_LIST = []  # e.g., ["Northern", "North-Western"] or [] for all
+# Include country-level (ADM0) processing
+INCLUDE_ADM_LEVEL0 = True
+
+# List of admin level 1 regions to process:
+#   - []: all provinces (auto-discovered from WB boundaries)
+#   - ["Northern", "Lusaka"]: specific provinces only
+ADM_LEVEL1_LIST = []
 
 # Health facilities data source: "osm" or "file"
 # - "osm": Query OpenStreetMap Overpass API for hospitals and clinics

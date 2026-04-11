@@ -62,16 +62,18 @@ POPULATION_YEAR = 2025
 ### Extract Pipeline (`extract/config.py`)
 
 ```python
-ADM_LEVEL1_LIST = []      # [] = all provinces, or ["Northern", "Southern"]
-FACILITIES_SOURCE = "osm" # "osm" or "file"
+INCLUDE_ADM_LEVEL0 = True        # Include country-level (ADM0) processing
+ADM_LEVEL1_LIST = []             # [] = all provinces, or ["Northern", "Southern"]
+FACILITIES_SOURCE = "osm"        # "osm" or "file"
 FORCE_RECOMPUTE = False
 ```
 
 ### Transform Pipeline (`transform/config.py`)
 
 ```python
-ADM_LEVEL1_LIST = ["Northern"]  # Provinces to process
-DISTANCES_METERS = [5000, 10000] # Catchment radii to analyze
+INCLUDE_ADM_LEVEL0 = True        # Include country-level (ADM0) processing
+ADM_LEVEL1_LIST = []             # [] = all provinces, or ["Northern", "Southern"]
+DISTANCES_METERS = [2000, 4000, 5000, 10000]  # Catchment radii to analyze
 TARGET_NEW_FACILITIES = 50
 POTENTIAL_TYPE = "grid"   # "grid" or "kmeans"
 GRID_SPACING = 0.03

@@ -45,6 +45,7 @@ if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
         COUNTRY,
         ISO_3,
         FORCE_RECOMPUTE,
+        INCLUDE_ADM_LEVEL0,
         ADM_LEVEL1_LIST,
         get_table_names,
         COUNTRY_LGU_TABLE,
@@ -133,18 +134,23 @@ def extract_boundaries_lgu(
 
 # COMMAND ----------
 
-# EXECUTE TASK: Determine provinces to process
+# EXECUTE TASK: Determine regions to process
 
 print(f"Country: {COUNTRY} | ISO-3: {ISO_3}")
 
-if ADM_LEVEL1_LIST == []:
-    provinces_to_process = get_all_adm_level1_names(ISO_3)
-elif ADM_LEVEL1_LIST is None:
-    provinces_to_process = [None]  # Process entire country
-else:
-    provinces_to_process = ADM_LEVEL1_LIST
+regions_to_process = []
 
-print(f"Will process {len(provinces_to_process)} region(s): {provinces_to_process}")
+# ADM0 (country-level)
+if INCLUDE_ADM_LEVEL0:
+    regions_to_process.append(None)
+
+# ADM1 (provinces)
+if ADM_LEVEL1_LIST == []:
+    regions_to_process.extend(get_all_adm_level1_names(ISO_3))
+else:
+    regions_to_process.extend(ADM_LEVEL1_LIST)
+
+print(f"Will process {len(regions_to_process)} region(s): {regions_to_process}")
 
 # COMMAND ----------
 
@@ -152,7 +158,7 @@ print(f"Will process {len(provinces_to_process)} region(s): {provinces_to_proces
 
 extraction_results = []
 
-for adm_level1 in provinces_to_process:
+for adm_level1 in regions_to_process:
     print("\n" + "=" * 60)
     print(f"PROCESSING: {adm_level1 if adm_level1 else 'ENTIRE COUNTRY'}")
     print("=" * 60)

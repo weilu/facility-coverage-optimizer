@@ -70,6 +70,7 @@ if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
         COUNTRY,
         ISO_3,
         FORCE_RECOMPUTE,
+        INCLUDE_ADM_LEVEL0,
         ADM_LEVEL1_LIST,
         FACILITIES_SOURCE,
         FACILITIES_INPUT_PATH,
@@ -188,27 +189,32 @@ def extract_existing_facilities(
 
 # COMMAND ----------
 
-# EXECUTE TASK: Determine provinces to process
+# EXECUTE TASK: Determine regions to process
 
 print(f"Country: {COUNTRY} | ISO-2: {ISO_2} | ISO-3: {ISO_3}")
 print(f"Facilities source: {FACILITIES_SOURCE}")
 
-if ADM_LEVEL1_LIST == []:
-    provinces_to_process = get_all_adm_level1_names(ISO_3)
-elif ADM_LEVEL1_LIST is None:
-    provinces_to_process = [None]  # Process entire country
-else:
-    provinces_to_process = ADM_LEVEL1_LIST
+regions_to_process = []
 
-print(f"Will process {len(provinces_to_process)} region(s): {provinces_to_process}")
+# ADM0 (country-level)
+if INCLUDE_ADM_LEVEL0:
+    regions_to_process.append(None)
+
+# ADM1 (provinces)
+if ADM_LEVEL1_LIST == []:
+    regions_to_process.extend(get_all_adm_level1_names(ISO_3))
+else:
+    regions_to_process.extend(ADM_LEVEL1_LIST)
+
+print(f"Will process {len(regions_to_process)} region(s): {regions_to_process}")
 
 # COMMAND ----------
 
-# EXECUTE TASK: Extract facilities per province
+# EXECUTE TASK: Extract facilities per region
 
 extraction_results = []
 
-for adm_level1 in provinces_to_process:
+for adm_level1 in regions_to_process:
     print("\n" + "=" * 60)
     print(f"PROCESSING: {adm_level1 if adm_level1 else 'ENTIRE COUNTRY'}")
     print("=" * 60)
@@ -264,7 +270,7 @@ print("FACILITIES EXTRACTION COMPLETE")
 print("=" * 60)
 print(f"Country: {COUNTRY} ({ISO_3})")
 print(f"Source: {FACILITIES_SOURCE}")
-print(f"Provinces processed: {len(extraction_results)}")
+print(f"Regions processed: {len(extraction_results)}")
 for result in extraction_results:
     region = result["adm_level1"] if result["adm_level1"] else "Country"
     print(f"  - {region}: {result['facilities_table']}")
