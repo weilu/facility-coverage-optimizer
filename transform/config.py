@@ -71,6 +71,9 @@ FORCE_RECOMPUTE = False
 # Target access rate for LGU equity analysis
 TARGET_ACCESS_RATE_PCT = 90.0
 
+# Base dashboard data table (aggregated metadata for frontend)
+BASE_DASHBOARD_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.base_dashboard_data_{COUNTRY.lower()}"
+
 # Visualization settings
 ENABLE_VISUALIZATION_DEFAULT = True
 VIZ_SAMPLE_SIZE = 5_000  # Max points per category for Folium maps

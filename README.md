@@ -127,6 +127,7 @@ Expensive operations are cached to UC tables. Set `FORCE_RECOMPUTE = True` to re
 | `*_facilities_h3_*` | Facilities with H3 index |
 | `*_coverage_*` | Coverage pairs |
 | `lgu_accessibility_results_*` | Final optimization results |
+| `base_dashboard_data_*` | Aggregated metadata for frontend data app |
 
 ## Output
 

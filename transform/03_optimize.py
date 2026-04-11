@@ -15,7 +15,7 @@ dbutils.library.restartPython()
 #
 # Outputs:
 #   - LGU accessibility results table (per-step metrics for each LGU)
-#   - Pareto frontier visualization (separate cell, can be skipped)
+#   - Base dashboard data table (aggregated metadata for the fronend data app)
 #
 # This task runs the greedy Maximum Covering Location Problem algorithm
 # to determine optimal locations for new facilities, then computes
@@ -56,6 +56,7 @@ if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
         H3_RESOLUTION,
         TARGET_NEW_FACILITIES,
         TARGET_ACCESS_RATE_PCT,
+        BASE_DASHBOARD_TABLE,
         get_transform_table_names,
         build_transform_combinations,
     )
@@ -78,6 +79,41 @@ def find_district(lat, lon, boundaries_pdf):
         if row["geometry"].contains(pt):
             return row["LGU"]
     return None  # point falls outside all boundaries
+
+
+def save_dashboard_metadata(
+    spark,
+    table_name: str,
+    country: str,
+    province: str | None,
+    year: int,
+    central_lat: float,
+    central_long: float,
+    distance_km: int,
+    total_new_facilities: int,
+    current_access: float,
+    geometry_wkt: str,
+    first_write: bool = False,
+):
+    """Append a row of metadata to the base_dashboard_data table."""
+    row = {
+        "country": country,
+        "province": province,
+        "year": int(year),
+        "central_lat": float(central_lat),
+        "central_long": float(central_long),
+        "distance_km": int(distance_km),
+        "total_new_facilities": int(total_new_facilities),
+        "current_access": float(current_access),
+        "geometry_wkt": geometry_wkt,
+    }
+    pdf = pd.DataFrame([row])
+    pdf["province"] = pdf["province"].astype(pd.StringDtype())
+    sdf = spark.createDataFrame(pdf)
+
+    mode = "overwrite" if first_write else "append"
+    sdf.write.mode(mode).option("overwriteSchema", "true").saveAsTable(table_name)
+    print(f"  Dashboard metadata saved ({mode}): {table_name}")
 
 # COMMAND ----------
 
@@ -333,6 +369,31 @@ for adm_level1, distance_meters in transform_combinations:
         f"Saved: {len(result_pdf)} rows x {len(result_pdf.columns)} columns\n"
         f"  Columns: total_facilities, new_facility, lat, lon, h3_index, "
         f"total_population_access_pct, [{len(lgu_col_names)} LGU columns]"
+    )
+
+    # Save metadata to base_dashboard_data table
+    print("\nSaving dashboard metadata...")
+    boundary_union = boundaries_pdf["geometry"].unary_union
+    centroid = boundary_union.centroid
+    current_access_pct = pareto_results[0]["objective"] * 100.0 / total_population
+    distance_km = int(distance_meters / 1000)
+
+    # Determine if this is the first write (overwrite) or subsequent (append)
+    first_combination = (adm_level1, distance_meters) == transform_combinations[0]
+
+    save_dashboard_metadata(
+        spark=spark,
+        table_name=BASE_DASHBOARD_TABLE,
+        country=COUNTRY,
+        province=adm_level1,
+        year=POPULATION_YEAR,
+        central_lat=centroid.y,
+        central_long=centroid.x,
+        distance_km=distance_km,
+        total_new_facilities=len(result_pdf) - 1,  # Exclude baseline row
+        current_access=round(current_access_pct, 2),
+        geometry_wkt=boundary_union.wkt,
+        first_write=first_combination,
     )
 
     # Release cached DataFrames to free driver memory
