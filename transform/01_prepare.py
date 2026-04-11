@@ -57,7 +57,6 @@ if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
         POTENTIAL_TYPE,
         GRID_SPACING,
         N_CLUSTERS,
-        get_k_rings,
         get_transform_table_names,
         build_transform_combinations,
     )
@@ -252,7 +251,6 @@ for adm_level1, distance_meters in transform_combinations:
     tables = get_transform_table_names(
         COUNTRY, COUNTRY_ISO3, adm_level1, POPULATION_YEAR, distance_meters
     )
-    k_rings = get_k_rings(distance_meters, H3_RESOLUTION)
 
     # Load boundaries
     print(f"\nLoading boundaries from: {tables['boundaries']}")

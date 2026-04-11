@@ -19,6 +19,10 @@ import pandas as pd
 import geopandas as gpd
 from shapely.wkt import loads as wkt_loads
 
+# Import from shared.core (local) or assume loaded via %run (Databricks)
+if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
+    from shared.core import deduplicate_columns
+
 # COMMAND ----------
 
 
