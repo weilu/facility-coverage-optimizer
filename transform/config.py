@@ -71,6 +71,22 @@ FORCE_RECOMPUTE = False
 # Target access rate for LGU equity analysis
 TARGET_ACCESS_RATE_PCT = 90.0
 
+# Visualization settings
+ENABLE_VISUALIZATION_DEFAULT = True
+VIZ_SAMPLE_SIZE = 5_000  # Max points per category for Folium maps
+
+
+def _get_enable_visualization() -> bool:
+    """Get ENABLE_VISUALIZATION from dbutils widget or use default."""
+    try:
+        val = dbutils.widgets.get("ENABLE_VISUALIZATION")
+        return val.lower() in ("true", "1", "yes")
+    except:
+        return ENABLE_VISUALIZATION_DEFAULT
+
+
+ENABLE_VISUALIZATION = _get_enable_visualization()
+
 # COMMAND ----------
 
 # HELPER FUNCTIONS (partial applications of shared.core functions)

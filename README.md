@@ -23,7 +23,7 @@ See [docs/optimization_approach.md](docs/optimization_approach.md) for details o
 │   ├── 01_prepare.py
 │   ├── 02_coverage.py
 │   ├── 03_optimize.py
-│   └── 04_lgu_metrics.py
+│   └── 04_visualize.py
 └── tests/
     ├── test_core.py        # Unit tests for pure functions
     ├── test_env.py         # Tests for environment/storage
@@ -78,7 +78,10 @@ TARGET_NEW_FACILITIES = 50
 POTENTIAL_TYPE = "grid"   # "grid" or "kmeans"
 GRID_SPACING = 0.03
 FORCE_RECOMPUTE = False
+ENABLE_VISUALIZATION = True      # Set false to skip 04_visualize.py
 ```
+
+The `ENABLE_VISUALIZATION` setting can also be overridden via Databricks job parameters.
 
 ## Usage
 
@@ -96,8 +99,8 @@ Run tasks in order:
 **Transform Pipeline:**
 1. `transform/01_prepare.py` - Prepare data, generate potential locations
 2. `transform/02_coverage.py` - Compute H3-based coverage
-3. `transform/03_optimize.py` - Run greedy MCLP optimization
-4. `transform/04_lgu_metrics.py` - Compute per-LGU accessibility metrics
+3. `transform/03_optimize.py` - Run optimization, compute per-LGU accessibility metrics
+4. `transform/04_visualize.py` - Generate Pareto charts and coverage maps (optional)
 
 ### Testing with a Different Schema
 

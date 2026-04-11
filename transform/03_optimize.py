@@ -1,5 +1,5 @@
 # Databricks notebook source
-# MAGIC %pip install "numpy<2" geopandas shapely folium plotly
+# MAGIC %pip install "numpy<2" geopandas shapely
 
 # COMMAND ----------
 
@@ -7,21 +7,25 @@ dbutils.library.restartPython()
 
 # COMMAND ----------
 
-# TASK: Run greedy MCLP optimization
+# TASK: Run optimization and compute LGU accessibility metrics
 #
 # Dependencies:
 #   - transform/02_coverage.py (Coverage tables)
+#   - extract/03_boundaries.py (LGU boundaries)
 #
 # Outputs:
-#   - Pareto frontier visualization
-#   - Optimized facility selection maps
+#   - LGU accessibility results table (per-step metrics for each LGU)
+#   - Pareto frontier visualization (separate cell, can be skipped)
 #
 # This task runs the greedy Maximum Covering Location Problem algorithm
-# to determine optimal locations for new facilities.
+# to determine optimal locations for new facilities, then computes
+# per-district accessibility metrics at each optimization step.
 
 # COMMAND ----------
 
-import plotly.graph_objects as go
+import pandas as pd
+from shapely.geometry import Point
+from shapely import wkt as shapely_wkt
 
 from pyspark.sql import functions as F
 
@@ -42,15 +46,16 @@ from pyspark.sql import functions as F
 # Local imports (skipped in Databricks where %run loads modules)
 import os
 if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
-    from shared.env import get_spark, uc_table_to_gdf
-    from shared.core import solve_mclp_greedy
+    from shared.env import get_spark, table_exists
+    from shared.core import sanitize_col_name, solve_mclp_greedy
     from transform.config import (
         COUNTRY,
         COUNTRY_ISO3,
         POPULATION_YEAR,
+        FORCE_RECOMPUTE,
         H3_RESOLUTION,
         TARGET_NEW_FACILITIES,
-        get_k_rings,
+        TARGET_ACCESS_RATE_PCT,
         get_transform_table_names,
         build_transform_combinations,
     )
@@ -59,8 +64,20 @@ if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
 
 spark = get_spark()
 
-# Visualization sample size
-_POP_VIZ_SAMPLE = 5_000
+# COMMAND ----------
+
+# HELPER FUNCTIONS
+
+
+def find_district(lat, lon, boundaries_pdf):
+    """Return the LGU name whose polygon contains (lon, lat), else None."""
+    if lat is None or lon is None or pd.isna(lat) or pd.isna(lon):
+        return None
+    pt = Point(lon, lat)  # Shapely Point is (x=lon, y=lat)
+    for _, row in boundaries_pdf.iterrows():
+        if row["geometry"].contains(pt):
+            return row["LGU"]
+    return None  # point falls outside all boundaries
 
 # COMMAND ----------
 
@@ -74,22 +91,26 @@ for adm, dist in transform_combinations:
 
 # COMMAND ----------
 
-# Store results for all combinations
-all_pareto_results = {}
+# COMPUTATION & STORAGE
 
 for adm_level1, distance_meters in transform_combinations:
     print("\n" + "=" * 60)
     region_name = adm_level1 if adm_level1 else "Country"
     distance_name = f"{int(distance_meters / 1000)}km"
-    print(f"OPTIMIZING: {region_name} @ {distance_name}")
+    print(f"COMPUTING: {region_name} @ {distance_name}")
     print("=" * 60)
 
     tables = get_transform_table_names(
         COUNTRY, COUNTRY_ISO3, adm_level1, POPULATION_YEAR, distance_meters
     )
-    k_rings = get_k_rings(distance_meters, H3_RESOLUTION)
 
-    # Load prepared data
+    # Check if already computed
+    if not FORCE_RECOMPUTE and table_exists(tables["lgu_accessibility"]):
+        print(f"LGU accessibility table already exists: {tables['lgu_accessibility']}")
+        print("Set FORCE_RECOMPUTE = True to regenerate.")
+        continue
+
+    # Load data
     print("\nLoading data...")
     population_aoi_sdf = spark.table(tables["population_aoi"]).cache()
     selected_hosp_sdf = spark.table(tables["facilities_h3"]).cache()
@@ -99,33 +120,19 @@ for adm_level1, distance_meters in transform_combinations:
 
     total_population = population_aoi_sdf.agg(F.sum("population")).collect()[0][0]
 
-    # Load boundaries for visualization
-    selected_boundary_gdf = uc_table_to_gdf(tables["boundaries"])
-    centroid = selected_boundary_gdf.iloc[0]["geometry"].centroid
-    CENTER_LAT = centroid.y
-    CENTER_LON = centroid.x
-
-    # Prepare optimization inputs (aggregated by H3 cell)
-    print("\nPreparing optimization inputs...")
-
-    # Aggregate population by H3 cell
+    # Build optimization inputs
+    print("\nBuilding optimization inputs...")
     pop_by_h3_sdf = population_aoi_sdf.groupBy("h3_index").agg(
         F.sum("population").alias("population")
     )
     pop_h3_rows = pop_by_h3_sdf.collect()
     w = {row["h3_index"]: float(row["population"]) for row in pop_h3_rows}
-    I = sorted(w.keys())
-    print(f"  Demand cells (H3): {len(I):,}")
 
-    # Facility IDs
     hosp_id_rows = selected_hosp_sdf.select("ID").collect()
     potential_id_rows = potential_locations_sdf.select("ID").collect()
     J_existing = sorted(row["ID"] for row in hosp_id_rows)
     J_potential = sorted(row["ID"] for row in potential_id_rows)
-    J = sorted(set(J_existing) | set(J_potential))
-    print(f"  Facilities: {len(J):,} (existing: {len(J_existing)}, potential: {len(J_potential)})")
 
-    # Coverage mapping
     all_coverage_sdf = hosp_coverage_sdf.select("facility_ID", "pop_ID").union(
         potential_coverage_sdf.select("facility_ID", "pop_ID")
     )
@@ -141,92 +148,198 @@ for adm_level1, distance_meters in transform_combinations:
         .agg(F.collect_set("facility_ID").alias("fac_ids"))
         .collect()
     )
-
     JI = {row["h3_index"]: list(row["fac_ids"]) for row in JI_rows}
-    print(f"  Coverage pairs: {sum(len(v) for v in JI.values()):,}")
 
     # Run greedy MCLP
     print("\nRunning greedy MCLP optimization...")
     pareto_results = solve_mclp_greedy(w, JI, J_existing, J_potential, TARGET_NEW_FACILITIES + 5)
 
-    # Store results
-    combo_key = (adm_level1, distance_meters)
-    all_pareto_results[combo_key] = {
-        "pareto_results": pareto_results,
-        "J_existing": J_existing,
-        "J_potential": J_potential,
-        "total_population": total_population,
-        "tables": tables,
-    }
+    # Build H3 -> LGU mapping
+    print("\nBuilding H3 -> LGU mapping...")
+    lgu_raw_sdf = spark.table(tables["lgu"]).select("LGU", "geometry_wkt")
 
-    # Calculate current access
-    existing_covered_ids_sdf = hosp_coverage_sdf.select("pop_ID").distinct()
-    pop_with_access_sdf = population_aoi_sdf.join(
-        existing_covered_ids_sdf,
-        population_aoi_sdf["ID"] == existing_covered_ids_sdf["pop_ID"],
-        "inner",
-    ).drop("pop_ID")
-    covered_pop_val = pop_with_access_sdf.agg(F.sum("population")).collect()[0][0]
-    current_access = round(covered_pop_val * 100 / total_population, 2)
-
-    # Maximum possible coverage
-    all_covered_ids_sdf = (
-        hosp_coverage_sdf.select("pop_ID")
-        .union(potential_coverage_sdf.select("pop_ID"))
-        .distinct()
-    )
-    max_covered_pop = (
-        population_aoi_sdf.join(
-            all_covered_ids_sdf,
-            population_aoi_sdf["ID"] == all_covered_ids_sdf["pop_ID"],
-            "inner",
+    h3_lgu_sdf = (
+        lgu_raw_sdf
+        .select(
+            F.col("LGU"),
+            F.explode(
+                F.expr(f"h3_polyfillash3(geometry_wkt, {H3_RESOLUTION})")
+            ).alias("h3_index"),
         )
-        .agg(F.sum("population"))
-        .collect()[0][0]
+        .cache()
     )
-    max_access_possible = round(max_covered_pop * 100 / total_population, 2)
 
-    # Visualize Pareto frontier
-    print("\nVisualizing Pareto frontier...")
-    x_values = [len(J_existing) + item["p"] for item in pareto_results]
-    y_values = [round(100 * item["objective"] / total_population, 2) for item in pareto_results]
+    _lgu_h3_count = h3_lgu_sdf.count()
 
-    x_values.insert(0, len(J_existing))
-    y_values.insert(0, current_access)
+    # Collect all raw LGU names and build the sanitization mapping
+    lgu_names_raw = sorted(
+        row["LGU"] for row in h3_lgu_sdf.select("LGU").distinct().collect()
+    )
 
-    fig = go.Figure(
-        data=go.Scatter(x=x_values, y=y_values, mode="lines+markers", name="Pareto Frontier")
+    name_map = {lgu: sanitize_col_name(lgu) for lgu in lgu_names_raw}
+    lgu_col_names = [name_map[lgu] for lgu in lgu_names_raw]
+
+    print(f"  {len(lgu_names_raw)} LGUs -> {_lgu_h3_count:,} H3 cells mapped")
+
+    # Pre-aggregate population by (h3_index, LGU)
+    print("\nPre-aggregating population by (h3_index, LGU)...")
+    h3_lgu_pop_pdf = (
+        population_aoi_sdf
+        .select("h3_index", "population")
+        .join(h3_lgu_sdf, on="h3_index", how="inner")
+        .groupBy("h3_index", "LGU")
+        .agg(F.sum("population").alias("pop"))
+        .toPandas()
     )
-    fig.update_layout(
-        title=f"Pareto Frontier: {region_name} @ {distance_name}",
-        xaxis_title="Number of facilities (existing + new)",
-        yaxis_title="Percentage of population with access",
-        plot_bgcolor="white",
-        yaxis=dict(range=[0, 100]),
-        xaxis=dict(range=[0, len(J_potential) + len(J_existing)]),
-        width=1200,
+    print(f"  Pre-aggregated {len(h3_lgu_pop_pdf):,} (h3, LGU) rows")
+
+    # Per-LGU total population (denominator for % calculation)
+    lgu_total_pop = h3_lgu_pop_pdf.groupby("LGU")["pop"].sum().to_dict()
+
+    # Lookup table for potential locations
+    potential_lookup = (
+        potential_locations_sdf
+        .select("ID", "lat", "lon", "h3_index")
+        .toPandas()
+        .set_index("ID")
     )
-    fig.add_vline(x=len(J_existing), line_width=3, line_dash="dash", line_color="green")
-    fig.add_annotation(
-        x=len(J_existing),
-        y=current_access,
-        text="Number of<br>existing facilities",
-        showarrow=True,
-        arrowhead=1,
-        ax=90,
-        ay=-30,
+
+    # Compute per-step LGU accessibility
+    print("\nComputing per-step LGU accessibility...")
+    n_existing = len(J_existing)
+    result_rows = []
+
+    for idx, step in enumerate(pareto_results):
+        p = step["p"]
+        covered_h3_set = set(step["covered_h3"])
+
+        # Identify the single new facility added in this step
+        prev_selected = (
+            set(pareto_results[idx - 1]["selected_facilities"])
+            if idx > 0
+            else set(J_existing)
+        )
+        new_fac_ids = set(step["selected_facilities"]) - prev_selected
+        new_fac_id = new_fac_ids.pop() if new_fac_ids else None
+
+        # Retrieve location info from potential_locations lookup
+        if new_fac_id and new_fac_id in potential_lookup.index:
+            fac_lat = float(potential_lookup.at[new_fac_id, "lat"])
+            fac_lon = float(potential_lookup.at[new_fac_id, "lon"])
+            fac_h3 = str(potential_lookup.at[new_fac_id, "h3_index"])
+        else:
+            fac_lat = fac_lon = fac_h3 = None
+
+        # National accessibility %
+        national_access_pct = round(step["objective"] * 100.0 / total_population, 2)
+
+        # Per-LGU accessibility (vectorised pandas)
+        covered_mask = h3_lgu_pop_pdf["h3_index"].isin(covered_h3_set)
+        lgu_covered = (
+            h3_lgu_pop_pdf[covered_mask]
+            .groupby("LGU")["pop"]
+            .sum()
+        )
+
+        # Assemble result row
+        row = {
+            "total_facilities": n_existing + p,
+            "new_facility": new_fac_id,
+            "lat": fac_lat,
+            "lon": fac_lon,
+            "h3_index": fac_h3,
+            "total_population_access_pct": national_access_pct,
+        }
+        for lgu_raw in lgu_names_raw:
+            safe_col = name_map[lgu_raw]
+            total = lgu_total_pop.get(lgu_raw, 0.0)
+            covered = float(lgu_covered.get(lgu_raw, 0.0))
+            row[safe_col] = round(covered * 100.0 / total, 2) if total > 0 else 0.0
+
+        result_rows.append(row)
+        print(
+            f"  Step {p:3d} | +1 facility ({new_fac_id}) "
+            f"-> national {national_access_pct:.2f}%"
+        )
+
+    # Check how many facilities are needed to reach TARGET for all LGUs
+    result_pdf = pd.DataFrame(result_rows)
+
+    def all_lgus_above_target(row, col_names, target):
+        return all(row[col] >= target for col in col_names)
+
+    target_row = result_pdf[
+        result_pdf.apply(
+            all_lgus_above_target, axis=1,
+            col_names=lgu_col_names,
+            target=TARGET_ACCESS_RATE_PCT,
+        )
+    ]
+    if not target_row.empty:
+        first = target_row.iloc[0]
+        print(
+            f"  All {len(lgu_names_raw)} LGUs reach >={TARGET_ACCESS_RATE_PCT}% access at "
+            f"{int(first['total_facilities'])} total facilities "
+            f"({int(first['total_facilities']) - n_existing} new facilities needed)."
+        )
+    else:
+        last = result_pdf.iloc[-1]
+        below = [
+            lgu_raw for lgu_raw, safe in name_map.items()
+            if last[safe] < TARGET_ACCESS_RATE_PCT
+        ]
+        print(
+            f"  After {TARGET_NEW_FACILITIES} new facilities, "
+            f"{len(below)} LGUs are still below {TARGET_ACCESS_RATE_PCT}%:\n"
+            f"  {below}\n"
+            f"  Increase TARGET_NEW_FACILITIES and re-run."
+        )
+
+    # Spatial join: assign district to each new facility
+    print("\nAssigning district to each facility step...")
+    boundaries_sdf = spark.table(tables["lgu"])
+    boundaries_pdf = boundaries_sdf.select("LGU", "geometry_wkt").toPandas()
+    boundaries_pdf["geometry"] = boundaries_pdf["geometry_wkt"].apply(
+        lambda w: shapely_wkt.loads(w) if isinstance(w, str) and w.strip() else None
     )
-    fig.add_hline(y=max_access_possible, line_width=3, line_dash="dash", line_color="green")
-    fig.add_annotation(
-        x=len(J_existing) + 20,
-        y=max_access_possible,
-        text="Maximum access possible",
-        showarrow=True,
-        arrowhead=1,
-        ax=0,
-        ay=-30,
+    boundaries_pdf = boundaries_pdf.dropna(subset=["geometry"]).reset_index(drop=True)
+
+    result_pdf["district"] = result_pdf.apply(
+        lambda r: find_district(r["lat"], r["lon"], boundaries_pdf), axis=1
     )
-    fig.show()
+
+    unmatched = result_pdf["district"].isna().sum()
+    if unmatched:
+        print(f"  {unmatched} row(s) could not be matched to a district.")
+
+    # Write to UC table
+    print(f"\nWriting LGU accessibility results to: {tables['lgu_accessibility']}")
+
+    # Enforce float type for all LGU columns
+    for col in lgu_col_names:
+        result_pdf[col] = result_pdf[col].astype(float)
+    result_pdf["lat"] = result_pdf["lat"].astype(float)
+    result_pdf["lon"] = result_pdf["lon"].astype(float)
+    result_pdf["total_population_access_pct"] = result_pdf["total_population_access_pct"].astype(float)
+
+    result_sdf = spark.createDataFrame(result_pdf)
+    front_cols = ["total_facilities", "new_facility", "district", "lat", "lon", "h3_index", "total_population_access_pct"]
+    result_sdf = result_sdf.select(front_cols + lgu_col_names)
+    result_sdf.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(
+        tables["lgu_accessibility"]
+    )
+
+    print(
+        f"Saved: {len(result_pdf)} rows x {len(result_pdf.columns)} columns\n"
+        f"  Columns: total_facilities, new_facility, lat, lon, h3_index, "
+        f"total_population_access_pct, [{len(lgu_col_names)} LGU columns]"
+    )
+
+    # Release cached DataFrames to free driver memory
+    population_aoi_sdf.unpersist()
+    selected_hosp_sdf.unpersist()
+    potential_locations_sdf.unpersist()
+    h3_lgu_sdf.unpersist()
 
     print(f"\n  Completed: {region_name} @ {distance_name}")
 
@@ -236,4 +349,4 @@ print("\n" + "=" * 60)
 print("OPTIMIZATION COMPLETE")
 print("=" * 60)
 print(f"Processed {len(transform_combinations)} combinations")
-print("Next step: Run 04_lgu_metrics.py to compute LGU accessibility")
+print("Next step: Run 04_visualize.py to generate charts and maps")

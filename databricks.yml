@@ -89,10 +89,12 @@ resources:
             notebook_path: ${var.workspace_root}/transform/03_optimize
             <<: *notebook_defaults
 
-        - task_key: lgu_metrics
+        - task_key: visualize
           existing_cluster_id: ${var.cluster_id}
           depends_on:
             - task_key: optimize
           notebook_task:
-            notebook_path: ${var.workspace_root}/transform/04_lgu_metrics
-            <<: *notebook_defaults
+            notebook_path: ${var.workspace_root}/transform/04_visualize
+            base_parameters:
+              UC_SCHEMA: ${var.uc_schema}
+              ENABLE_VISUALIZATION: "true"
