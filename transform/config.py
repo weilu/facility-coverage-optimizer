@@ -72,7 +72,7 @@ FORCE_RECOMPUTE = False
 TARGET_ACCESS_RATE_PCT = 90.0
 
 # Base dashboard data table (aggregated metadata for frontend)
-BASE_DASHBOARD_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.base_dashboard_data_{COUNTRY.lower()}"
+BASE_DASHBOARD_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.base_dashboard_data_{COUNTRY_ISO3.lower()}"
 
 # Visualization settings
 ENABLE_VISUALIZATION_DEFAULT = True
