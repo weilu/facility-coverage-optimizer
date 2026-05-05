@@ -62,6 +62,9 @@ if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
         build_transform_combinations,
     )
 
+
+from pyspark.sql.types import StructType, StructField, StringType, LongType, DoubleType
+
 # COMMAND ----------
 
 spark = get_spark()
@@ -82,6 +85,18 @@ def find_district(lat, lon, boundaries_pdf):
     return None  # point falls outside all boundaries
 
 
+_DASHBOARD_SCHEMA = StructType([
+    StructField("country",               StringType(), True),
+    StructField("province",              StringType(), True),
+    StructField("year",                  LongType(),   True),
+    StructField("central_lat",           DoubleType(), True),
+    StructField("central_long",          DoubleType(), True),
+    StructField("distance_km",           LongType(),   True),
+    StructField("total_new_facilities",  LongType(),   True),
+    StructField("current_access",        DoubleType(), True),
+    StructField("geometry_wkt",          StringType(), True),
+])
+
 def save_dashboard_metadata(
     spark,
     table_name: str,
@@ -96,24 +111,29 @@ def save_dashboard_metadata(
     geometry_wkt: str,
     first_write: bool = False,
 ):
-    """Append a row of metadata to the base_dashboard_data table."""
     row = {
-        "country": country,
-        "province": province,
-        "year": int(year),
-        "central_lat": float(central_lat),
-        "central_long": float(central_long),
-        "distance_km": int(distance_km),
+        "country":              country,
+        "province":             province,           # None is fine — StringType is nullable
+        "year":                 int(year),
+        "central_lat":          float(central_lat),
+        "central_long":         float(central_long),
+        "distance_km":          int(distance_km),
         "total_new_facilities": int(total_new_facilities),
-        "current_access": float(current_access),
-        "geometry_wkt": geometry_wkt,
+        "current_access":       float(current_access),
+        "geometry_wkt":         geometry_wkt,
     }
     pdf = pd.DataFrame([row])
-    pdf["province"] = pdf["province"].astype(pd.StringDtype())
-    sdf = spark.createDataFrame(pdf)
+
+    # ── Fix: undo pandas 3.x StringDtype inference before Arrow sees it ──
+    str_cols = pdf.select_dtypes(include="string").columns
+    pdf[str_cols] = pdf[str_cols].astype(object)
+
+    # ── Fix: pass explicit schema so Spark doesn't guess ──
+    sdf = spark.createDataFrame(pdf, schema=_DASHBOARD_SCHEMA)
 
     mode = "overwrite" if first_write else "append"
     sdf.write.mode(mode).option("overwriteSchema", "true").saveAsTable(table_name)
+    print(pdf)
     print(f"  Dashboard metadata saved ({mode}): {table_name}")
 
 # COMMAND ----------
@@ -259,7 +279,10 @@ for adm_level1, distance_meters in transform_combinations:
         result_rows = []
 
         for idx, step in enumerate(pareto_results):
-            p = step["p"]
+            if step["p"] == 0:
+                continue
+
+            p = step["p"] - 1
             covered_h3_set = set(step["covered_h3"])
 
             # Identify the single new facility added in this step
@@ -332,7 +355,12 @@ for adm_level1, distance_meters in transform_combinations:
                 f"({int(first['total_facilities']) - n_existing} new facilities needed)."
             )
         else:
-            last = result_pdf.iloc[-1]
+            try:
+                last = result_pdf.iloc[-1]
+            except IndexError:
+                print(f"Skipping {adm_level1} @ {distance_meters}")
+                continue
+
             below = [
                 lgu_raw for lgu_raw, safe in name_map.items()
                 if last[safe] < TARGET_ACCESS_RATE_PCT
@@ -393,18 +421,30 @@ for adm_level1, distance_meters in transform_combinations:
     # Save metadata to base_dashboard_data table
     if not skip_dashboard:
         print("\nSaving dashboard metadata...")
-        boundaries_sdf = spark.table(tables["lgu"])
-        boundaries_pdf = boundaries_sdf.select("LGU", "geometry_wkt").toPandas()
-        boundaries_pdf["geometry"] = boundaries_pdf["geometry_wkt"].apply(
-            lambda w: shapely_wkt.loads(w) if isinstance(w, str) and w.strip() else None
-        )
-        boundaries_pdf = boundaries_pdf.dropna(subset=["geometry"]).reset_index(drop=True)
+        boundaries_sdf = spark.table(tables["boundaries"])
+        boundary_row = boundaries_sdf.select("geometry_wkt").limit(1).collect()
+        
+        boundry_basetable = boundary_row[0]["geometry_wkt"] if boundary_row else None
+        
+        # Parse WKT string → Shapely geometry, then get centroid
+        geometry = shapely_wkt.loads(boundry_basetable)
+        centroid = geometry.centroid
+        print(f"Centroid: x={centroid.x}, y={centroid.y}")
+        boundary_row = boundaries_sdf.select("geometry_wkt").limit(1).collect()
 
-        boundary_union = unary_union(boundaries_pdf["geometry"].tolist())
-        centroid = boundary_union.centroid
+        boundry_basetable = boundary_row[0]["geometry_wkt"] if boundary_row else None
 
         # Read current access from first row of results
-        first_row = result_pdf.iloc[0]
+        try:
+            # Find the first row where the new_facility identifier ends with "_current"
+            mask = result_pdf["new_facility"].astype(str).str.endswith("_current")
+            if mask.any():
+                first_row = result_pdf[mask].iloc[0]
+            else:
+                first_row = result_pdf.iloc[0]
+        except IndexError:
+            print(f"Skipped {adm_level1} @ {distance_meters}")
+            continue
         current_access_pct = float(first_row["total_population_access_pct"])
         distance_km = int(distance_meters / 1000)
 
@@ -413,7 +453,7 @@ for adm_level1, distance_meters in transform_combinations:
         save_dashboard_metadata(
             spark=spark,
             table_name=BASE_DASHBOARD_TABLE,
-            country=COUNTRY,
+            country= COUNTRY,
             province=adm_level1,
             year=POPULATION_YEAR,
             central_lat=centroid.y,
@@ -421,7 +461,7 @@ for adm_level1, distance_meters in transform_combinations:
             distance_km=distance_km,
             total_new_facilities=len(result_pdf) - 1,
             current_access=round(current_access_pct, 2),
-            geometry_wkt=boundary_union.wkt,
+            geometry_wkt=boundry_basetable,
             first_write=first_combination,
         )
 

@@ -66,7 +66,7 @@ TARGET_NEW_FACILITIES = 50
 H3_RESOLUTION = 8  # Must match extraction resolution
 
 # Set to True to recompute cached results
-FORCE_RECOMPUTE = False
+FORCE_RECOMPUTE = True
 
 # Target access rate for LGU equity analysis
 TARGET_ACCESS_RATE_PCT = 90.0

@@ -37,7 +37,7 @@ if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
 VOLUME_DIR = f"/Volumes/{UC_CATALOG}/sgpbpi163/vgpbpi163"
 
 # Set to True to recompute cached results even if tables exist
-FORCE_RECOMPUTE = False
+FORCE_RECOMPUTE = True
 
 # Include country-level (ADM0) processing
 INCLUDE_ADM_LEVEL0 = True
