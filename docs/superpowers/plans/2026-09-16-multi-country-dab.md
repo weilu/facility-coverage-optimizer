@@ -10,6 +10,29 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-16-multi-country-dab-design.md`
 
+## Dev verification checkpoints (stop points)
+
+After a task (or a sensible group), STOP and verify on the dev target (`dev-wei`,
+schema `pim`) before continuing. Each checkpoint states what to run and what to
+confirm; execution pauses for sign-off. Running stages on a real cluster needs
+the code deployed (`databricks bundle deploy -t dev-wei`) and a way to run a
+notebook/job — cleanest once the parameterized `pipeline` job exists (Task 7).
+Recommended grouping:
+
+- **Checkpoint A — after Task 4 (WB fetch):** on the dev cluster, confirm
+  `ddh_bytes(WB_ADMIN0_URL)` returns bytes (mounted DDH volume or URL) — a small
+  standalone check, no pipeline run needed. See Task 4.
+- **Checkpoint B — after Tasks 1–3, 5, 6 (settings + naming + volume + cache):**
+  deploy to dev and run the extract stages for one country (e.g. `COUNTRY_ISO3=LAO`)
+  into `pim`; confirm ISO3-named tables appear (incl. `wb_boundaries_lgu_lao`) and
+  the dev volume (`UC_VOLUME`) is used.
+- **Checkpoint C — after Task 7 (DAB):** `databricks bundle validate` both
+  targets; run the `pipeline` job for one country on dev; confirm all 9 tasks
+  pass and `run_tests` gates. Then a 2–3 country `batch` run.
+
+Who runs dev commands and how (assistant via CLI with approval, or you via `!`/UI)
+is agreed once, at Checkpoint A, and applies thereafter.
+
 ## Global Constraints
 
 - Unity Catalog catalog is `prd_mega`. Canonical data schema is `sgpbpi163` (prod); dev target uses `pim`.
@@ -347,9 +370,21 @@ git commit -m "refactor: standardize LGU table naming on ISO3"
 
 ---
 
-### Task 4: Fix the dead WB boundaries URL
+### Task 4: Fix the dead WB boundaries URL — DONE (commit `aada296`)
 
 The `ddh-published-v2/.../5/...` base URL 404s; the working path is `ddh-published/0038272/DR0095369/...`.
+
+**Implemented beyond the original one-line swap** (per request): adopted the
+mega-indicators DDH pattern. Added `ddh_volume_path(url)` and `ddh_bytes(url)` to
+`shared/env.py` (prefer the mounted DDH volume at `/Volumes/prd_development_data/files/ddh/...`,
+fall back to `requests.get`); `extract/01b_download_wb.download_wb_geojson` now
+uses `ddh_bytes`. Unit tests in `tests/test_env.py` (`TestDdhHelpers`). The live
+URL also makes `ddh_volume_path` work (it splits on the `ddh-published` segment).
+
+**Dev checkpoint A:** on the dev cluster, run a cell such as
+`%run ../shared/env` then `print(len(ddh_bytes(WB_ADMIN0_URL)))` (import
+`WB_ADMIN0_URL` from `extract.config`); confirm it prints a large byte count with
+no error. Note in logs whether it hit the volume or the URL.
 
 **Files:**
 - Modify: `extract/config.py`
