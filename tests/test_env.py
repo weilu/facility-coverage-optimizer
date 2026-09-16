@@ -165,3 +165,34 @@ class TestStorageBackendFactory:
         reset_storage_backend()
         backend2 = get_storage_backend()
         assert backend1 is not backend2
+
+
+class TestDdhHelpers:
+    """Tests for the DDH volume/URL download helpers."""
+
+    def test_ddh_volume_path_maps_url(self):
+        from shared.env import ddh_volume_path
+        url = (
+            "https://datacatalogfiles.worldbank.org/ddh-published/0038272/DR0095369/"
+            "World%20Bank%20Official%20Boundaries%20(GeoJSON)/"
+            "World%20Bank%20Official%20Boundaries%20-%20Admin%200.geojson"
+        )
+        assert ddh_volume_path(url) == (
+            "/Volumes/prd_development_data/files/ddh/0038272/DR0095369/"
+            "World Bank Official Boundaries (GeoJSON)/"
+            "World Bank Official Boundaries - Admin 0.geojson"
+        )
+
+    def test_ddh_volume_path_rejects_non_ddh_url(self):
+        from shared.env import ddh_volume_path
+        with pytest.raises(ValueError):
+            ddh_volume_path("https://example.com/foo/bar.geojson")
+
+    def test_ddh_bytes_reads_volume_when_present(self, tmp_path, monkeypatch):
+        import shared.env as env
+        f = tmp_path / "cached.bin"
+        f.write_bytes(b"volume-copy")
+        # Resolve the "volume path" to our temp file; ddh_bytes should read it
+        # without touching the network.
+        monkeypatch.setattr(env, "ddh_volume_path", lambda url: str(f))
+        assert env.ddh_bytes("https://datacatalogfiles.worldbank.org/ddh-published/x") == b"volume-copy"

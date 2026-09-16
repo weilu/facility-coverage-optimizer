@@ -14,6 +14,7 @@ import os
 from enum import Enum
 from typing import Protocol, runtime_checkable
 from pathlib import Path
+from urllib.parse import urlparse, unquote
 
 import pandas as pd
 import geopandas as gpd
@@ -22,6 +23,33 @@ from shapely.wkt import loads as wkt_loads
 # Import from shared.core (local) or assume loaded via %run (Databricks)
 if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
     from shared.core import deduplicate_columns
+
+# COMMAND ----------
+
+# DDH (World Bank Data Catalog) download helpers — prefer the mounted DDH volume,
+# fall back to the URL. Mirrors the mega-indicators repo's ddh_bytes approach so a
+# published DDH file is read from the volume when available and downloaded otherwise.
+DDH_VOLUME_ROOT = "/Volumes/prd_development_data/files/ddh"
+
+
+def ddh_volume_path(url: str) -> str:
+    """Volume path mirroring a DDH download URL
+    (.../ddh-published/{dataset}/{resource}/{filename})."""
+    parts = [unquote(p) for p in urlparse(url).path.split("/") if p]
+    i = parts.index("ddh-published")  # raises ValueError for non-DDH URLs
+    return DDH_VOLUME_ROOT + "/" + "/".join(parts[i + 1:])
+
+
+def ddh_bytes(url: str) -> bytes:
+    """Bytes of a DDH file: the mounted volume copy if present, else download the URL."""
+    vol = ddh_volume_path(url)
+    if os.path.exists(vol):
+        with open(vol, "rb") as f:
+            return f.read()
+    import requests  # lazy: only needed on the URL-fallback path
+    resp = requests.get(url, timeout=300)
+    resp.raise_for_status()
+    return resp.content
 
 # COMMAND ----------
 

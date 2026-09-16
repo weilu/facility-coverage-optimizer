@@ -36,7 +36,7 @@ import geopandas as gpd
 # Local imports (skipped in Databricks where %run loads modules)
 import os
 if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
-    from shared.env import ensure_dir, file_exists
+    from shared.env import ensure_dir, file_exists, ddh_bytes
     from extract.config import (
         VOLUME_DIR,
         WB_ADMIN0_URL,
@@ -47,18 +47,17 @@ if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
 # COMMAND ----------
 
 def download_wb_geojson(url: str, cache_path: str) -> gpd.GeoDataFrame:
-    """Download World Bank GeoJSON to cache and return as GeoDataFrame."""
+    """Fetch World Bank GeoJSON to cache and return as GeoDataFrame.
+
+    Prefers the mounted DDH volume copy, falling back to the URL (see ddh_bytes).
+    """
     if file_exists(cache_path):
         print(f"Loading cached WB boundaries: {cache_path}")
         return gpd.read_file(cache_path)
 
-    print(f"Downloading World Bank boundaries: {url}")
-    response = requests.get(url, stream=True, timeout=300)
-    response.raise_for_status()
-
+    print(f"Fetching World Bank boundaries (DDH volume or URL): {url}")
     with open(cache_path, 'wb') as f:
-        for chunk in response.iter_content(chunk_size=8192):
-            f.write(chunk)
+        f.write(ddh_bytes(url))
 
     print(f"Cached to: {cache_path}")
     return gpd.read_file(cache_path)

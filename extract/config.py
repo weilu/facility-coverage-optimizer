@@ -57,8 +57,10 @@ ADM_LEVEL1_LIST = []
 FACILITIES_SOURCE = "osm"
 FACILITIES_INPUT_PATH = f"{VOLUME_DIR}/selected_hosp_input_data.geojson"
 
-# World Bank Official Boundaries GeoJSON URLs (version 5, June 2025)
-WB_BOUNDARIES_BASE_URL = "https://datacatalogfiles.worldbank.org/ddh-published-v2/0038272/5/DR0095369/World%20Bank%20Official%20Boundaries%20(GeoJSON)"
+# World Bank Official Boundaries GeoJSON URLs.
+# Uses the ddh-published path (not ddh-published-v2, which now 404s) so it also
+# resolves to the mounted DDH volume via shared.env.ddh_bytes.
+WB_BOUNDARIES_BASE_URL = "https://datacatalogfiles.worldbank.org/ddh-published/0038272/DR0095369/World%20Bank%20Official%20Boundaries%20(GeoJSON)"
 WB_ADMIN0_URL = f"{WB_BOUNDARIES_BASE_URL}/World%20Bank%20Official%20Boundaries%20-%20Admin%200.geojson"
 WB_ADMIN1_URL = f"{WB_BOUNDARIES_BASE_URL}/World%20Bank%20Official%20Boundaries%20-%20Admin%201.geojson"
 WB_ADMIN2_URL = f"{WB_BOUNDARIES_BASE_URL}/World%20Bank%20Official%20Boundaries%20-%20Admin%202.geojson"
