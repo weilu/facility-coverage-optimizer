@@ -127,6 +127,24 @@ exist before transform runs for an existing country.
    `wb_boundaries_lgu_{iso3}` tables. LGU extraction is a cheap Admin2 filter.
 3. After verifying, drop the old `wb_boundaries_lgu_{country}` tables.
 
+## Downstream consumers — dashboard (`../pimpam-dash`)
+
+Verified the dashboard is unaffected by the LGU rename:
+
+- It has **no references to `wb_boundaries_lgu_*`** (or any `wb_boundaries_*`) in
+  code — only in `README.md` prose. The table we rename is intermediate and not
+  consumed downstream.
+- The tables it *does* read are already ISO3-named, from `prd_mega.sgpbpi163`:
+  `health_facilities_{iso3}_osm` (+ `_{slug}_province`),
+  `lgu_accessibility_results_{iso3}_{suffix}` (+ province variants), and
+  `gadm_boundaries_{iso3}` (GADM, a separate source our pipeline does not
+  produce; currently hardcoded to Zambia in `queries.py`).
+
+**Constraint:** this work must NOT rename or alter `health_facilities_{iso3}_osm`
+or `lgu_accessibility_results_{iso3}_*` — the dashboard depends on both. The
+design does not touch them (both are already ISO3-named in `shared/core.py` and
+left unchanged). Only `wb_boundaries_lgu_{country}` → `_{iso3}` changes.
+
 ## Testing
 
 - **Unit:** country derivation in `settings.py` — ISO3 → ISO2/name for the 36,
