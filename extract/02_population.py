@@ -45,6 +45,7 @@ if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
         COUNTRY,
         ISO_3,
         FORCE_RECOMPUTE,
+        H3_RESOLUTION,
         RASTER_PATH,
         COUNTRY_POPULATION_TABLE,
     )
@@ -59,7 +60,7 @@ def extract_population_chunked(
     raster_path: str,
     table_name: str,
     chunk_size: int = 1024,
-    h3_resolution: int = 8,
+    h3_resolution: int = H3_RESOLUTION,
     force: bool = False,
 ) -> int:
     """

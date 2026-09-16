@@ -30,6 +30,9 @@ if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
         COUNTRY,
         ISO_3,
         POPULATION_YEAR,
+        FORCE_RECOMPUTE,
+        INCLUDE_ADM_LEVEL0,
+        H3_RESOLUTION,
     )
 
 # COMMAND ----------
@@ -37,12 +40,6 @@ if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
 # CONFIGURATION
 
 VOLUME_DIR = f"/Volumes/{UC_CATALOG}/sgpbpi163/vgpbpi163"
-
-# Set to True to recompute cached results even if tables exist
-FORCE_RECOMPUTE = False
-
-# Include country-level (ADM0) processing
-INCLUDE_ADM_LEVEL0 = True
 
 # List of admin level 1 regions to process:
 #   - []: all provinces (auto-discovered from WB boundaries)

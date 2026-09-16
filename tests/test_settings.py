@@ -35,3 +35,27 @@ class TestResolveCountryName:
     def test_returns_nonempty_for_all(self):
         for iso3 in ALL_ISO3:
             assert resolve_country_name(iso3)
+
+
+class TestRunControlDefaults:
+    def test_force_recompute_defaults_false(self):
+        from shared.settings import FORCE_RECOMPUTE
+        assert FORCE_RECOMPUTE is False
+
+    def test_include_adm_level0_defaults_true(self):
+        from shared.settings import INCLUDE_ADM_LEVEL0
+        assert INCLUDE_ADM_LEVEL0 is True
+
+    def test_h3_resolution_is_shared_constant(self):
+        from shared.settings import H3_RESOLUTION
+        assert H3_RESOLUTION == 8
+
+
+class TestBoolWidget:
+    @pytest.mark.parametrize("raw,expected", [
+        ("true", True), ("True", True), ("1", True), ("yes", True),
+        ("false", False), ("no", False), ("", False),
+    ])
+    def test_parses_truthy_strings(self, raw, expected):
+        from shared.settings import _parse_bool
+        assert _parse_bool(raw) is expected

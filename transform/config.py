@@ -33,6 +33,9 @@ if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
         COUNTRY,
         ISO_3 as COUNTRY_ISO3,
         POPULATION_YEAR,
+        FORCE_RECOMPUTE,
+        INCLUDE_ADM_LEVEL0,
+        H3_RESOLUTION,
     )
     from shared.env import get_spark
 else:
@@ -83,11 +86,10 @@ else:
 # COMMAND ----------
 
 # CONFIGURATION
+# INCLUDE_ADM_LEVEL0, FORCE_RECOMPUTE, and H3_RESOLUTION are imported from
+# shared.settings (widgets / shared constant).
 
-# Include country-level (ADM0) processing
-INCLUDE_ADM_LEVEL0 = True
-
-# 
+#
 ADM_LEVEL1_LIST = []
 
 # List of distances to analyze (in meters)
@@ -102,10 +104,6 @@ GRID_SPACING = 0.03
 N_CLUSTERS = 100
 
 TARGET_NEW_FACILITIES = 50
-H3_RESOLUTION = 8  # Must match extraction resolution
-
-# Set to True to recompute cached results
-FORCE_RECOMPUTE = False
 
 # Target access rate for LGU equity analysis
 TARGET_ACCESS_RATE_PCT = 90.0

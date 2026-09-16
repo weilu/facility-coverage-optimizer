@@ -33,6 +33,17 @@ def resolve_country_name(iso3: str) -> str:
     return getattr(country, "common_name", None) or country.name
 
 
+def _parse_bool(raw: str) -> bool:
+    return str(raw).strip().lower() in ("true", "1", "yes")
+
+
+def _get_bool_widget(name: str, default: bool) -> bool:
+    try:
+        return _parse_bool(dbutils.widgets.get(name))
+    except Exception:
+        return default
+
+
 UC_SCHEMA = _get_widget("UC_SCHEMA", UC_SCHEMA_DEFAULT)
 
 # Country settings — derived from a single COUNTRY_ISO3 widget (default Laos)
@@ -40,3 +51,10 @@ ISO_3 = _get_widget("COUNTRY_ISO3", "LAO").upper()
 ISO_2 = resolve_iso2(ISO_3)
 COUNTRY = resolve_country_name(ISO_3)
 POPULATION_YEAR = int(_get_widget("POPULATION_YEAR", "2025"))
+
+# Run-control (job parameters), consolidated from extract/config.py + transform/config.py
+FORCE_RECOMPUTE = _get_bool_widget("FORCE_RECOMPUTE", False)
+INCLUDE_ADM_LEVEL0 = _get_bool_widget("INCLUDE_ADM_LEVEL0", True)
+
+# H3 resolution — single source; extraction and transform must match.
+H3_RESOLUTION = 8
