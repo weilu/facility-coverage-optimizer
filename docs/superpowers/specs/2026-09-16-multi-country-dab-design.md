@@ -54,7 +54,14 @@ Canonical data schema: `prd_mega.sgpbpi163` (where 36 countries already exist).
 
 ## Changes
 
-### 1. Country parameterization — `shared/settings.py`
+### 1. Parameterization & config consolidation — `shared/settings.py`
+
+Centralize run-varying config in `shared/settings.py` using the existing
+`_get_uc_schema()` widget-with-fallback pattern (so local, non-Databricks runs
+still work), and have `extract/config.py` and `transform/config.py` import from
+there instead of defining their own copies.
+
+**Country / population (widgets):**
 
 - Replace hardcoded `COUNTRY`/`ISO_2`/`ISO_3` with derivation from a
   `COUNTRY_ISO3` widget (default `"LAO"`, so local dev and existing behavior are
@@ -63,8 +70,39 @@ Canonical data schema: `prd_mega.sgpbpi163` (where 36 countries already exist).
 - `COUNTRY` = a human-readable display name from `pycountry` (used only in log
   output now, not in table names).
 - `POPULATION_YEAR` becomes a widget (default `2025`).
-- Mirror the existing `_get_uc_schema()` widget-with-fallback pattern for each
-  new widget so local (non-Databricks) runs still work.
+
+**Run-control (widgets), consolidated from the two config files:**
+
+- **`FORCE_RECOMPUTE`** — widget (bool, default `False`), parsed like the existing
+  `ENABLE_VISUALIZATION` widget. Currently duplicated in `extract/config.py:42`
+  and `transform/config.py:108`; both import it from settings instead. Lets an
+  operator force a re-run per country without editing code, and supports the
+  review-item #6 fix.
+- **`INCLUDE_ADM_LEVEL0`** — widget (bool, default `True`). Currently duplicated
+  in `extract/config.py:45` and `transform/config.py:88`; both import it. Enables
+  province-only reruns.
+
+**Drift-prevention (shared constant, NOT a widget):**
+
+- **`H3_RESOLUTION`** — define once in `shared/settings.py` (`= 8`). Today there
+  are two independent literals that "must match": `transform/config.py:105` and
+  the `h3_resolution: int = 8` default in `extract/02_population.py:62`. Both
+  read the shared constant instead. Kept a constant (not a widget) so it cannot
+  vary per run and break cross-country comparability.
+
+**Volume isolation:**
+
+- **`VOLUME_DIR`** (`extract/config.py:39`) currently hardcodes the `sgpbpi163`
+  volume regardless of `UC_SCHEMA`, so dev (`pim`) and prod (`sgpbpi163`) share
+  one volume for worldpop rasters, WB geojson caches, and the facilities input.
+  The volume name (`vgpbpi163`) is not derivable from the schema name, so expose
+  it as a bundle variable `uc_volume` (path segment `schema/volume`, default
+  `sgpbpi163/vgpbpi163`) passed as a widget; `VOLUME_DIR =
+  f"/Volumes/{UC_CATALOG}/{uc_volume}"`. Targets override it. Default preserves
+  today's behavior (existing cached reference data stays reachable).
+  Open question for review: whether the `pim` dev target has its own volume, or
+  should keep pointing at the `sgpbpi163` volume for shared read-only reference
+  data.
 
 ### 2. LGU naming standardization — `shared/core.py`, configs
 
@@ -91,9 +129,10 @@ Canonical data schema: `prd_mega.sgpbpi163` (where 36 countries already exist).
 - **Merge** `extract_pipeline` + `transform_pipeline` into one `pipeline` job
   (delivers goal #4). Tasks: the 5 extract notebooks then the 4 transform
   notebooks, with `prepare` `depends_on` `facilities`. Use **job-level
-  parameters** (`COUNTRY_ISO3`, `UC_SCHEMA`, `POPULATION_YEAR`) referenced by each
-  task's `base_parameters` via `{{job.parameters.<name>}}`, replacing the
-  per-task `notebook_defaults` anchor.
+  parameters** (`COUNTRY_ISO3`, `UC_SCHEMA`, `POPULATION_YEAR`, `FORCE_RECOMPUTE`,
+  `INCLUDE_ADM_LEVEL0`, and the `uc_volume` variable) referenced by each task's
+  `base_parameters` via `{{job.parameters.<name>}}`, replacing the per-task
+  `notebook_defaults` anchor. (`H3_RESOLUTION` is a code constant, not a param.)
 - **Add** a `batch` job: a single `for_each_task` iterating a JSON array of ISO3
   strings (default = the 36), each iteration a `run_job_task` → the `pipeline`
   job with `{{input}}` supplied as `COUNTRY_ISO3` (delivers goal #3; country
@@ -155,6 +194,10 @@ left unchanged). Only `wb_boundaries_lgu_{country}` → `_{iso3}` changes.
 
 - **Unit:** country derivation in `settings.py` — ISO3 → ISO2/name for the 36,
   explicitly covering PSE/SRB/YEM (correct standard ISO2) and LAO.
+- **Unit:** widget parsing/fallback in `settings.py` — `FORCE_RECOMPUTE` and
+  `INCLUDE_ADM_LEVEL0` bool parsing and their local (no-widget) defaults; and
+  that `H3_RESOLUTION` resolves to a single shared value used by both extract and
+  transform.
 - **Unit:** update `tests/test_core.py` naming assertions for ISO3-based LGU
   table names.
 - **Validate:** `databricks bundle validate` for both `dev-wei` and `prod`.
@@ -163,6 +206,13 @@ left unchanged). Only `wb_boundaries_lgu_{country}` → `_{iso3}` changes.
 ## Out of scope
 
 - Rewriting the OSM extraction or optimization logic.
-- Changing widgets other than country/population (e.g. `FORCE_RECOMPUTE`,
-  `INCLUDE_ADM_LEVEL0`, `ADM_LEVEL1_LIST` keep their current config defaults).
+- `ADM_LEVEL1_LIST` stays a code default (`[]` = all provinces). It is a list
+  (would need CSV-widget parsing), rarely overridden, and tangled with the
+  commented-out per-country examples; batch-by-country does not need it.
+- Analysis/algorithm knobs stay code defaults so cross-country results and the
+  dashboard remain comparable: `DISTANCES_METERS`, `TARGET_NEW_FACILITIES`,
+  `POTENTIAL_TYPE`/`GRID_SPACING`/`N_CLUSTERS`, `TARGET_ACCESS_RATE_PCT`,
+  `VIZ_SAMPLE_SIZE`, `FACILITIES_SOURCE`.
+- `MAPBOX_ACCESS_TOKEN` is a secret — if the travel API is ever enabled it must
+  use Databricks secrets, never a plain widget/param. Not enabled today.
 - Backfilling `potential_coverage` for countries that only have coverage tables.
