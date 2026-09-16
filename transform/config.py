@@ -18,10 +18,12 @@
 
 # Local imports (skipped in Databricks where %run loads modules)
 import os
+import re
+import unicodedata
 if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
     from shared.core import (
         get_k_rings,
-        get_transform_table_names as _get_transform_table_names,
+        get_transform_table_names as _get_transform_table_names, _sanitize_adm_name,
         build_transform_combinations as _build_transform_combinations,
         H3_EDGE_LENGTH_M,
     )
@@ -41,14 +43,51 @@ else:
 
 # COMMAND ----------
 
+# List of admin level 1 regions to process:
+#  - []: all provinces (auto-discovered from UC)
+ 
+# Malawi - ["Central Region","Northern Region","Southern Region"]
+
+# India - ['Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka', 'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal']
+
+# Cambodia = ['Banteay Meanchey', 'Battambang', 'Kampong Cham', 'Kampong Speu', 'Kampong Thom', 'Kampot', 'Kandal', 'Kep', 'Koh Kong', 'Kratie', 'Mondul Kiri', 'Oddar Meanchey', 'Pailin', 'Phnom Penh', 'Preah Sihanouk', 'Preah Vihear', 'Prey Veng', 'Pursat', 'Ratanak Kiri', 'Siemreap', 'Svay Rieng', 'Takeo', 'Tboung Khmum']
+
+# Chad = ['Barh el Ghazel', 'Batha', 'Borkou', 'Chari-Baguirmi', 'Hadjer-Lamis', 'Kanem', 'Lac', 'Logone Occidental', 'Logone Oriental', 'Mandoul', 'Mayo-Kebbi Est', 'Mayo-Kebbi Ouest', 'Moyen-Chari', 'Ouaddaï', 'Salamat', 'Sila', Tandjilé', "Ville de N'Djamena", 'Wadi Fira']
+
+# Gabon = ['Estuaire', 'Haut-Ogooue', 'Moyen-Ogooue', 'Ngounie', 'Ogooue-Maritime', 'Ogooue-lolo']
+
+# The Gambia = ['Central River North', 'Central River South', 'Kanifing Municipal Council', 'Lower River', 'North Bank',  'Upper River', 'West Coast']
+
+# Afghanistan = ['Agadez', 'Communauté Urbaine de Niamey', 'Diffa', 'Dosso', 'Maradi', 'Tahoua', 'Tillabéri', 'Zinder']
+
+# Cameroon= ['Adamaoua', 'Centre', 'Est', 'Extrême - Nord', 'Littoral', 'Nord','Nord - Ouest', 'Ouest', 'Sud', 'Sud - Ouest']
+
+# Mali = ['District de Bamako', 'Gao', 'Kayes', 'Kidal', 'Koulikoro', 'Mopti', 'Sikasso', 'Ségou', 'Tombouctou']
+
+# Niger = ['Agadez', 'Communauté Urbaine de Niamey', 'Diffa', 'Dosso', 'Maradi', 'Tahoua', 'Tillabéri', 'Zinder']
+
+# Somalia = ['Awdal', 'Banadir', 'Bari', 'Bay', 'Galgaduud', 'Hiraan', 'Juba Hoose', 'Shabelle Dhexe', 'Shabelle Hoose', 'Sool', 'Togdheer', 'Woqooyi Galbeed']
+
+# Sudan = ['Al Jazeera', 'Blue Nile', 'Gadaref', 'Kassala', 'Khartoum', 'Nile', 'Northern', 'Northern Darfur', 'Northern Kordofan', 'Red Sea', 'Southern Darfur', 'Southern Kordofan', 'Western Darfur', 'White Nile']
+
+# Ethiopia = ['Addis Ababa', 'Afar', 'Amhara', 'Dire Dawa', 'Gambela', 'Harari', 'Oromia', 'SNNP', 'Sidama', 'Somali', 'South West Ethiopia', 'Tigray']
+
+# Romania = ['Alba', 'Arad', 'Argeş', 'Bacău', 'Bihor', 'Bistriţa-Năsaud', 'Botoşani', 'Braşov', 'Brăila', 'Bucureşti', 'Buzău', 'Caraş-Severin', 'Cluj', 'Constanţa', 'Covasna', 'Călăraşi', 'Dolj', 'Dâmboviţa', 'Galaţi', 'Giurgiu', 'Gori', 'Harghita', 'Hunedoara',  'Iaşi', 'Ilfov', 'Maramureş', 'Mehedinţi', 'Mureş', 'Neamţ', 'Olt', 'Prahova', 'Satu Mare', 'Sibiu', 'Suceava', 'Sălaj', 'Teleorman', 'Timiş', 'Tulcea', 'Vaslui', 'Vrancea', 'Vâlcea']
+
+# Syria =  ['Al Ḥasakah', 'Aleppo', 'Ar Raqqah', "As Suwaydā'", 'Damascus', 'Dar`ā', 'Dayr az Zawr', 'Hama', 'Idlib', 'Latakia', 'Quneitra', 'Rif Dimashq', 'Ţarţūs', 'Ḥimṣ']
+
+# West Bank and Gaza = ['Al Khalil (Hebron)', 'Al Quds (Jerusalem)', 'Bethlehem', 'Deir al Balah', 'Gaza', 'Jabalya', 'Jenin', 'Khan Yunis', 'Nablus', 'Qalqiliya', 'Ramallah', 'Salfit', 'Tubas', 'Tulkarm']
+
+# Equatorial Guinea = ['Bioko Norte', 'Litoral']
+
+# COMMAND ----------
+
 # CONFIGURATION
 
 # Include country-level (ADM0) processing
 INCLUDE_ADM_LEVEL0 = True
 
-# List of admin level 1 regions to process:
-#   - []: all provinces (auto-discovered from UC)
-#   - ["Northern", "Lusaka"]: specific provinces only
+# 
 ADM_LEVEL1_LIST = []
 
 # List of distances to analyze (in meters)
@@ -77,7 +116,6 @@ BASE_DASHBOARD_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.base_dashboard_data_{COUNTRY_I
 # Visualization settings
 ENABLE_VISUALIZATION_DEFAULT = True
 VIZ_SAMPLE_SIZE = 5_000  # Max points per category for Folium maps
-
 
 def _get_enable_visualization() -> bool:
     """Get ENABLE_VISUALIZATION from dbutils widget or use default."""
@@ -111,7 +149,7 @@ def get_transform_table_names(
 def _get_adm_level1_names_from_uc() -> list[str]:
     """Discover province names from LGU boundary table in UC."""
     spark = get_spark()
-    lgu_table = f"{UC_CATALOG}.{UC_SCHEMA}.wb_boundaries_lgu_{COUNTRY.lower()}"
+    lgu_table = f"{UC_CATALOG}.{UC_SCHEMA}.wb_boundaries_lgu_{_sanitize_adm_name(COUNTRY)}"
     provinces_df = spark.sql(f"SELECT DISTINCT province FROM {lgu_table} ORDER BY province")
     provinces = [row.province for row in provinces_df.collect()]
     print(f"Discovered {len(provinces)} provinces from UC: {provinces}")

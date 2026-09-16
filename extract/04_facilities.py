@@ -198,8 +198,16 @@ out center;
 
         return pd.DataFrame(rows, columns=["osm_id", "lat", "lon", "name"])
 
+    # Perform country extraction once, province data can be cliped from country data
+    if adm_level1 == None:
+        extract_country_cache = force
+    else:
+        print(f"Switching to country level cache for processing {adm_level1}")
+        # Always make sure country (adm_level=None) is run first in loop
+        extract_country_cache = False
+
     # --- Country-level raw OSM cache (pre-boundary-filter) ---
-    if country_raw_table and not force and table_exists(country_raw_table):
+    if country_raw_table and not extract_country_cache and table_exists(country_raw_table):
         print(f"Loading cached country-level OSM data from: {country_raw_table}")
         
         # Once country-level extractions are already done, call them directly from the table to avoid re-running for province level

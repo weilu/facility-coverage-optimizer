@@ -26,23 +26,35 @@ def get_k_rings(distance_meters: int, h3_resolution: int) -> int:
     return int(np.ceil(distance_meters / H3_EDGE_LENGTH_M[h3_resolution]))
 
 
-def sanitize_col_name(name: str) -> str:
+def sanitize_col_name(name) -> str:
     """
     Converts an LGU display name into a Delta-safe column name.
 
+    Handles both string names and numeric (float/int) names that may appear
+    when LGU names are read from data sources with loose typing.
+
     Rules applied (in order):
-      1. Strip leading/trailing whitespace
-      2. Replace any character that is not alphanumeric or underscore with underscore
-      3. Collapse consecutive underscores to a single one
-      4. Strip leading/trailing underscores
-      5. Prefix with 'lgu_' so the name never starts with a digit
+      1. Convert to string (handles float/int inputs)
+      2. If the value looks like a float with a .0 suffix, strip it (e.g. 123.0 → "123")
+      3. Strip leading/trailing whitespace
+      4. Replace any character that is not alphanumeric or underscore with underscore
+      5. Collapse consecutive underscores to a single one
+      6. Strip leading/trailing underscores
+      7. Prefix with 'lgu_' so the name never starts with a digit
 
     Examples:
       "Kapiri Mposhi"  → "lgu_Kapiri_Mposhi"
       "Choma (East)"   → "lgu_Choma_East"
       "Lusaka"         → "lgu_Lusaka"
+      3.0              → "lgu_3"
+      42               → "lgu_42"
+      "12.5"           → "lgu_12_5"
     """
-    s = name.strip()
+    s = str(name)
+    # If the string representation ends with '.0', treat as integer
+    if re.fullmatch(r"-?\d+\.0", s):
+        s = s[:-2]
+    s = s.strip()
     s = re.sub(r"[^A-Za-z0-9_]", "_", s)
     s = re.sub(r"_+", "_", s)
     s = s.strip("_")
@@ -102,14 +114,14 @@ def get_extract_table_names(
             "boundaries": f"{catalog}.{schema}.wb_boundaries_{iso3.lower()}{adm_suffix}",
             "population": f"{catalog}.{schema}.population_{iso3.lower()}_{population_year}{adm_suffix}",
             "facilities": f"{catalog}.{schema}.health_facilities_{iso3.lower()}_osm{adm_suffix}",
-            "lgu": f"{catalog}.{schema}.wb_boundaries_lgu_{country.lower()}{adm_suffix}",
+            "lgu": f"{catalog}.{schema}.wb_boundaries_lgu_{_sanitize_adm_name(country)}{adm_suffix}",
         }
     else:
         return {
             "boundaries": f"{catalog}.{schema}.wb_boundaries_{iso3.lower()}",
             "population": f"{catalog}.{schema}.population_{iso3.lower()}_{population_year}",
             "facilities": f"{catalog}.{schema}.health_facilities_{iso3.lower()}_osm",
-            "lgu": f"{catalog}.{schema}.wb_boundaries_lgu_{country.lower()}",
+            "lgu": f"{catalog}.{schema}.wb_boundaries_lgu_{_sanitize_adm_name(country)}",
         }
 
 
@@ -150,7 +162,7 @@ def get_transform_table_names(
             "facilities_coverage": f"{catalog}.{schema}.facilities_coverage_{iso3.lower()}{adm_suffix}_{distance_name}",
             "potential_locations": f"{catalog}.{schema}.potential_locations_{iso3.lower()}{adm_suffix}_{distance_name}",
             "potential_coverage": f"{catalog}.{schema}.potential_coverage_{iso3.lower()}{adm_suffix}_{distance_name}",
-            "lgu": f"{catalog}.{schema}.wb_boundaries_lgu_{country.lower()}",
+            "lgu": f"{catalog}.{schema}.wb_boundaries_lgu_{_sanitize_adm_name(country)}",
             "lgu_accessibility": f"{catalog}.{schema}.lgu_accessibility_results_{iso3.lower()}{adm_suffix}_{distance_name}",
         }
     else:
@@ -163,7 +175,7 @@ def get_transform_table_names(
             "facilities_coverage": f"{catalog}.{schema}.facilities_coverage_{iso3.lower()}_{distance_name}",
             "potential_locations": f"{catalog}.{schema}.potential_locations_{iso3.lower()}_{distance_name}",
             "potential_coverage": f"{catalog}.{schema}.potential_coverage_{iso3.lower()}_{distance_name}",
-            "lgu": f"{catalog}.{schema}.wb_boundaries_lgu_{country.lower()}",
+            "lgu": f"{catalog}.{schema}.wb_boundaries_lgu_{_sanitize_adm_name(country)}",
             "lgu_accessibility": f"{catalog}.{schema}.lgu_accessibility_results_{iso3.lower()}_{distance_name}",
         }
 

@@ -299,7 +299,7 @@ for adm_level1, distance_meters in transform_combinations:
 
     # Save facilities with H3 to UC table
     print(f"Saving facilities with H3 to: {tables['facilities_h3']}")
-    selected_hosp_sdf.write.mode("overwrite").saveAsTable(tables["facilities_h3"])
+    selected_hosp_sdf.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(tables["facilities_h3"])
 
     print(f"\n  Completed: {region_name} @ {distance_name}")
 
