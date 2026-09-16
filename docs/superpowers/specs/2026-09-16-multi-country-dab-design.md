@@ -127,8 +127,9 @@ there instead of defining their own copies.
 ### 4. DAB restructure — `databricks.yml`
 
 - **Merge** `extract_pipeline` + `transform_pipeline` into one `pipeline` job
-  (delivers goal #4). Tasks: the 5 extract notebooks then the 4 transform
-  notebooks, with `prepare` `depends_on` `facilities`. Use **job-level
+  (delivers goal #4). Tasks: a `run_tests` gate task first, then the 5 extract
+  notebooks (the first extract task `depends_on: run_tests`), then the 4
+  transform notebooks, with `prepare` `depends_on` `facilities`. Use **job-level
   parameters** (`COUNTRY_ISO3`, `UC_SCHEMA`, `POPULATION_YEAR`, `FORCE_RECOMPUTE`,
   `INCLUDE_ADM_LEVEL0`, and the `uc_volume` variable) referenced by each task's
   `base_parameters` via `{{job.parameters.<name>}}`, replacing the per-task
@@ -154,6 +155,16 @@ there instead of defining their own copies.
 ### 6. Dependency
 
 - Add `pycountry` to `requirements.txt` and `pyproject.toml`.
+
+### 7. Test gate & CI
+
+- New `tests/run_tests.py` Databricks notebook — the `pipeline` job's first task;
+  runs the full suite in an isolated, local-forced subprocess (see Testing).
+- New `tests/conftest.py` — autouse guard asserting local env / temp backend so
+  tests can never write to `prd_mega`.
+- New `.github/workflows/tests.yml` — unit-tests-only CI on push/PR.
+- `databricks.yml` — add the `run_tests` task; the first extract task
+  `depends_on` it.
 
 ## Rollout / migration
 
@@ -192,6 +203,8 @@ left unchanged). Only `wb_boundaries_lgu_{country}` → `_{iso3}` changes.
 
 ## Testing
 
+### New / updated tests
+
 - **Unit:** country derivation in `settings.py` — ISO3 → ISO2/name for the 36,
   explicitly covering PSE/SRB/YEM (correct standard ISO2) and LAO.
 - **Unit:** widget parsing/fallback in `settings.py` — `FORCE_RECOMPUTE` and
@@ -201,7 +214,40 @@ left unchanged). Only `wb_boundaries_lgu_{country}` → `_{iso3}` changes.
 - **Unit:** update `tests/test_core.py` naming assertions for ISO3-based LGU
   table names.
 - **Validate:** `databricks bundle validate` for both `dev-wei` and `prod`.
-- Existing `tests/test_core.py` (other cases) stays green.
+
+### Pipeline test gate (`run_tests` task)
+
+Runs the **full** suite (incl. `test_integration.py`) as the first task in the
+`pipeline` job, gating every run. It must **never** read/write `prd_mega` (dev
+`pim` or prod `sgpbpi163`) tables or volumes. Mechanism:
+
+- Run pytest in an **isolated subprocess** on the driver
+  (`subprocess.run([sys.executable, "-m", "pytest", "tests/", ...])`) with a
+  **scrubbed environment**: `DATABRICKS_RUNTIME_VERSION` and the Databricks
+  connection vars removed, and a temp `base_dir`. This forces
+  `detect_environment()` → `LOCAL`, so `get_storage_backend()` returns the
+  `LocalStorageBackend` (no UC writes), and the integration tests get their own
+  in-process local Spark. Because it is a fresh process, the fixture's
+  `spark.stop()` tears down only that local Spark — the cluster session is
+  untouched. The task raises on non-zero pytest exit, failing the pipeline.
+- `%pip install pytest` (already a declared dep) if the cluster image lacks it.
+
+### Write-safety guard (defense in depth)
+
+Add `tests/conftest.py` with an autouse, session-scoped fixture that **asserts
+`shared.env.is_local()` and that the resolved storage backend's `base_dir` is a
+temp path** before any test runs. If the suite is ever launched in a context that
+resolves to a Databricks backend, it hard-fails instead of writing to a real
+destination. Verified today: `test_integration.py` performs no UC/volume writes
+(tempfile + local Spark only), and `test_env.py` writes only through an explicit
+`LocalStorageBackend(temp_dir)`; this guard keeps that invariant enforced.
+
+### CI (GitHub Actions)
+
+Add a workflow (alongside the existing `compliance.yml`) that runs **unit tests
+only** — `pytest tests/test_core.py tests/test_env.py` — on push/PR. Excludes
+`test_integration.py` to avoid provisioning PySpark/Java in the runner (the
+integration tests run in the on-cluster gate instead). There is no test CI today.
 
 ## Out of scope
 
