@@ -36,6 +36,9 @@ addopts = [
     "-v",
     "--tb=short",
 ]
+markers = [
+    "databricks: test requires a real Databricks cluster (H3 SQL); deselect in CI with -m 'not databricks'",
+]
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::PendingDeprecationWarning",

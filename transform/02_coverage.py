@@ -33,10 +33,15 @@ from pyspark.sql import functions as F
 
 # COMMAND ----------
 
+# MAGIC %run "../shared/transform_ops"
+
+# COMMAND ----------
+
 # Local imports (skipped in Databricks where %run loads modules)
 import os
 if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
     from shared.env import get_spark, table_exists
+    from shared.transform_ops import compute_coverage_h3_internal
     from transform.config import (
         COUNTRY,
         COUNTRY_ISO3,
@@ -56,54 +61,6 @@ spark = get_spark()
 # COMMAND ----------
 
 # COVERAGE COMPUTATION FUNCTIONS
-
-def _compute_coverage_h3_internal(facilities_sdf, population_sdf, h3_resolution: int, k_rings: int):
-    """
-    Computes which population points fall inside each facility's catchment using H3 grid rings.
-    Uses distributed Spark joins instead of Python loops.
-
-    k_rings: number of H3 rings around facility (determines catchment radius)
-    """
-    fac_count = facilities_sdf.count()
-    pop_count = population_sdf.count()
-    print(f"  Computing coverage: {fac_count} facilities x {pop_count:,} pop points (H3 k={k_rings})...")
-
-    # Get H3 cells within k rings of each facility
-    fac_h3_sdf = facilities_sdf.select(
-        F.col("ID").alias("facility_ID"),
-        F.explode(
-            F.expr(f"h3_kring(h3_index, {k_rings})")
-        ).alias("h3_index")
-    )
-
-    # Join facilities H3 cells with population H3 indexes
-    coverage_sdf = fac_h3_sdf.join(
-        population_sdf.select(
-            F.col("ID").alias("pop_ID"),
-            "h3_index",
-            "population"
-        ),
-        on="h3_index",
-        how="inner"
-    ).drop("h3_index")
-
-    # Aggregate coverage per facility
-    facility_coverage_sdf = coverage_sdf.groupBy("facility_ID").agg(
-        F.sum("population").alias("pop_with_access")
-    )
-
-    # pop_with_access survives prior writes; drop before re-join to avoid duplicate-column conflict on re-run
-    result_sdf = facilities_sdf.drop("pop_with_access").join(
-        facility_coverage_sdf.withColumnRenamed("facility_ID", "ID"),
-        on="ID",
-        how="left"
-    ).fillna({"pop_with_access": 0.0})
-
-    # Flat coverage table (facility_ID, pop_ID pairs)
-    flat_sdf = coverage_sdf.select("facility_ID", "pop_ID").distinct()
-
-    return result_sdf, flat_sdf
-
 
 def compute_coverage_h3(
     facilities_sdf,
@@ -125,7 +82,7 @@ def compute_coverage_h3(
         print(f"    Facilities: {fac_sdf.count()}")
         return fac_sdf, cov_sdf
 
-    result_sdf, flat_sdf = _compute_coverage_h3_internal(
+    result_sdf, flat_sdf = compute_coverage_h3_internal(
         facilities_sdf, population_sdf, h3_resolution, k_rings
     )
     print("Computing coverage: done")
