@@ -79,14 +79,14 @@ class TestGetExtractTableNames:
         assert result["boundaries"] == "prd.sgp.wb_boundaries_zmb"
         assert result["population"] == "prd.sgp.population_zmb_2025"
         assert result["facilities"] == "prd.sgp.health_facilities_zmb_osm"
-        assert result["lgu"] == "prd.sgp.wb_boundaries_lgu_zambia"
+        assert result["lgu"] == "prd.sgp.wb_boundaries_lgu_zmb"
 
     def test_province_level(self):
         result = get_extract_table_names("prd", "sgp", "zambia", "ZMB", "Northern", 2025)
         assert result["boundaries"] == "prd.sgp.wb_boundaries_zmb_northern_province"
         assert result["population"] == "prd.sgp.population_zmb_2025_northern_province"
         assert result["facilities"] == "prd.sgp.health_facilities_zmb_osm_northern_province"
-        assert result["lgu"] == "prd.sgp.wb_boundaries_lgu_zambia_northern_province"
+        assert result["lgu"] == "prd.sgp.wb_boundaries_lgu_zmb_northern_province"
 
     def test_hyphenated_province(self):
         result = get_extract_table_names("prd", "sgp", "zambia", "ZMB", "North-Western", 2025)

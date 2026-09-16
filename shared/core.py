@@ -100,7 +100,7 @@ def get_extract_table_names(
     Args:
         catalog: UC catalog name
         schema: UC schema name
-        country: Country name
+        country: Country name (retained for signature compatibility; table names use iso3)
         iso3: ISO 3-letter country code
         adm_level1: Optional admin level 1 region name
         population_year: Population data year
@@ -114,14 +114,14 @@ def get_extract_table_names(
             "boundaries": f"{catalog}.{schema}.wb_boundaries_{iso3.lower()}{adm_suffix}",
             "population": f"{catalog}.{schema}.population_{iso3.lower()}_{population_year}{adm_suffix}",
             "facilities": f"{catalog}.{schema}.health_facilities_{iso3.lower()}_osm{adm_suffix}",
-            "lgu": f"{catalog}.{schema}.wb_boundaries_lgu_{_sanitize_adm_name(country)}{adm_suffix}",
+            "lgu": f"{catalog}.{schema}.wb_boundaries_lgu_{iso3.lower()}{adm_suffix}",
         }
     else:
         return {
             "boundaries": f"{catalog}.{schema}.wb_boundaries_{iso3.lower()}",
             "population": f"{catalog}.{schema}.population_{iso3.lower()}_{population_year}",
             "facilities": f"{catalog}.{schema}.health_facilities_{iso3.lower()}_osm",
-            "lgu": f"{catalog}.{schema}.wb_boundaries_lgu_{_sanitize_adm_name(country)}",
+            "lgu": f"{catalog}.{schema}.wb_boundaries_lgu_{iso3.lower()}",
         }
 
 
@@ -140,7 +140,7 @@ def get_transform_table_names(
     Args:
         catalog: UC catalog name
         schema: UC schema name
-        country: Country name
+        country: Country name (retained for signature compatibility; table names use iso3)
         iso3: ISO 3-letter country code
         adm_level1: Optional admin level 1 region name
         population_year: Population data year
@@ -162,7 +162,7 @@ def get_transform_table_names(
             "facilities_coverage": f"{catalog}.{schema}.facilities_coverage_{iso3.lower()}{adm_suffix}_{distance_name}",
             "potential_locations": f"{catalog}.{schema}.potential_locations_{iso3.lower()}{adm_suffix}_{distance_name}",
             "potential_coverage": f"{catalog}.{schema}.potential_coverage_{iso3.lower()}{adm_suffix}_{distance_name}",
-            "lgu": f"{catalog}.{schema}.wb_boundaries_lgu_{_sanitize_adm_name(country)}",
+            "lgu": f"{catalog}.{schema}.wb_boundaries_lgu_{iso3.lower()}",
             "lgu_accessibility": f"{catalog}.{schema}.lgu_accessibility_results_{iso3.lower()}{adm_suffix}_{distance_name}",
         }
     else:
@@ -175,7 +175,7 @@ def get_transform_table_names(
             "facilities_coverage": f"{catalog}.{schema}.facilities_coverage_{iso3.lower()}_{distance_name}",
             "potential_locations": f"{catalog}.{schema}.potential_locations_{iso3.lower()}_{distance_name}",
             "potential_coverage": f"{catalog}.{schema}.potential_coverage_{iso3.lower()}_{distance_name}",
-            "lgu": f"{catalog}.{schema}.wb_boundaries_lgu_{_sanitize_adm_name(country)}",
+            "lgu": f"{catalog}.{schema}.wb_boundaries_lgu_{iso3.lower()}",
             "lgu_accessibility": f"{catalog}.{schema}.lgu_accessibility_results_{iso3.lower()}_{distance_name}",
         }
 

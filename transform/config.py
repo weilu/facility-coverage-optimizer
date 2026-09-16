@@ -23,7 +23,7 @@ import unicodedata
 if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
     from shared.core import (
         get_k_rings,
-        get_transform_table_names as _get_transform_table_names, _sanitize_adm_name,
+        get_transform_table_names as _get_transform_table_names,
         build_transform_combinations as _build_transform_combinations,
         H3_EDGE_LENGTH_M,
     )
@@ -147,7 +147,7 @@ def get_transform_table_names(
 def _get_adm_level1_names_from_uc() -> list[str]:
     """Discover province names from LGU boundary table in UC."""
     spark = get_spark()
-    lgu_table = f"{UC_CATALOG}.{UC_SCHEMA}.wb_boundaries_lgu_{_sanitize_adm_name(COUNTRY)}"
+    lgu_table = f"{UC_CATALOG}.{UC_SCHEMA}.wb_boundaries_lgu_{COUNTRY_ISO3.lower()}"
     provinces_df = spark.sql(f"SELECT DISTINCT province FROM {lgu_table} ORDER BY province")
     provinces = [row.province for row in provinces_df.collect()]
     print(f"Discovered {len(provinces)} provinces from UC: {provinces}")

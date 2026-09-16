@@ -22,7 +22,7 @@ import geopandas as gpd
 import re
 import unicodedata
 if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
-    from shared.core import get_extract_table_names, _sanitize_adm_name
+    from shared.core import get_extract_table_names
     from shared.env import file_exists
     from shared.settings import (
         UC_CATALOG,
@@ -73,7 +73,7 @@ WB_NAME_CORRECTIONS = {
 # DERIVED CONFIGURATION
 
 COUNTRY_POPULATION_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.population_{ISO_3.lower()}_{POPULATION_YEAR}"
-COUNTRY_LGU_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.wb_boundaries_lgu_{_sanitize_adm_name(COUNTRY)}"
+COUNTRY_LGU_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.wb_boundaries_lgu_{ISO_3.lower()}"
 RASTER_PATH = f"{VOLUME_DIR}/worldpop_{ISO_3.lower()}_{POPULATION_YEAR}.tif"
 
 # COMMAND ----------
