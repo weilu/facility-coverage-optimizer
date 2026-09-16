@@ -46,6 +46,11 @@ def _get_bool_widget(name: str, default: bool) -> bool:
 
 UC_SCHEMA = _get_widget("UC_SCHEMA", UC_SCHEMA_DEFAULT)
 
+# Volume path segment "schema/volume" for file caches (worldpop rasters, WB
+# geojson, facilities input). Not derivable from UC_SCHEMA (volume name differs),
+# so it is its own widget; default preserves existing cached data.
+UC_VOLUME = _get_widget("UC_VOLUME", "sgpbpi163/vgpbpi163")
+
 # Country settings — derived from a single COUNTRY_ISO3 widget (default Laos)
 ISO_3 = _get_widget("COUNTRY_ISO3", "LAO").upper()
 ISO_2 = resolve_iso2(ISO_3)

@@ -27,6 +27,7 @@ if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
     from shared.settings import (
         UC_CATALOG,
         UC_SCHEMA,
+        UC_VOLUME,
         COUNTRY,
         ISO_3,
         POPULATION_YEAR,
@@ -39,7 +40,7 @@ if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
 
 # CONFIGURATION
 
-VOLUME_DIR = f"/Volumes/{UC_CATALOG}/sgpbpi163/vgpbpi163"
+VOLUME_DIR = f"/Volumes/{UC_CATALOG}/{UC_VOLUME}"
 
 # List of admin level 1 regions to process:
 #   - []: all provinces (auto-discovered from WB boundaries)

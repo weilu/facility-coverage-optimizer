@@ -59,3 +59,9 @@ class TestBoolWidget:
     def test_parses_truthy_strings(self, raw, expected):
         from shared.settings import _parse_bool
         assert _parse_bool(raw) is expected
+
+
+class TestUcVolume:
+    def test_default_preserves_current_volume(self):
+        from shared.settings import UC_VOLUME
+        assert UC_VOLUME == "sgpbpi163/vgpbpi163"
