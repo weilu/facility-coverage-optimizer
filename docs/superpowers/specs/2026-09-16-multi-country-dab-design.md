@@ -158,11 +158,19 @@ there instead of defining their own copies.
 
 ### 7. Test gate & CI
 
+- **Replace `tests/test_integration.py`** (library smoke-tests that import no
+  project code) with real tests: pure-Python coverage of `solve_mclp_greedy` /
+  `generate_grid_in_polygon` / country/widget logic, and `@pytest.mark.databricks`
+  Spark tests calling the real H3 transforms (`add_facility_h3_index`,
+  `_compute_coverage_h3_internal`, population H3 indexing). See Testing.
+- Make the `spark` fixture cluster-aware (use the existing cluster session, no
+  `spark.stop()` on Databricks).
+- New `tests/conftest.py` — autouse guard patching UC-write entry points
+  (`DataFrameWriter.saveAsTable`, storage-backend `save_*` / `gdf_to_uc_table`)
+  so tests can never write to `prd_mega`.
 - New `tests/run_tests.py` Databricks notebook — the `pipeline` job's first task;
-  runs the full suite in an isolated, local-forced subprocess (see Testing).
-- New `tests/conftest.py` — autouse guard asserting local env / temp backend so
-  tests can never write to `prd_mega`.
-- New `.github/workflows/tests.yml` — unit-tests-only CI on push/PR.
+  runs `pytest tests/` in the cluster session (see Testing).
+- New `.github/workflows/tests.yml` — `pytest -m "not databricks"` on push/PR.
 - `databricks.yml` — add the `run_tests` task; the first extract task
   `depends_on` it.
 
@@ -203,51 +211,75 @@ left unchanged). Only `wb_boundaries_lgu_{country}` → `_{iso3}` changes.
 
 ## Testing
 
-### New / updated tests
+### Audit finding — replace the integration tests
 
-- **Unit:** country derivation in `settings.py` — ISO3 → ISO2/name for the 36,
-  explicitly covering PSE/SRB/YEM (correct standard ISO2) and LAO.
-- **Unit:** widget parsing/fallback in `settings.py` — `FORCE_RECOMPUTE` and
-  `INCLUDE_ADM_LEVEL0` bool parsing and their local (no-widget) defaults; and
-  that `H3_RESOLUTION` resolves to a single shared value used by both extract and
-  transform.
-- **Unit:** update `tests/test_core.py` naming assertions for ISO3-based LGU
-  table names.
-- **Validate:** `databricks bundle validate` for both `dev-wei` and `prod`.
+`tests/test_integration.py` imports **no project code** (only pyspark / pandas /
+geopandas / numpy / shapely). Every test reimplements a simplified version of the
+logic inline and asserts that the *library* behaves — so it would pass through any
+real pipeline regression (`compute_coverage_h3`, `generate_grid_in_polygon`,
+`solve_mclp_greedy`, etc. could all break silently). It is deleted and replaced
+with tests that call the real functions. `test_core.py` (which does import real
+code) stays.
+
+A hard constraint shapes the split: the real Spark transforms use **Databricks-
+native H3 SQL** (`h3_kring`, `h3_polyfillash3`, `h3_longlatash3`) that does not
+exist in open-source PySpark. So H3 transforms are only meaningfully testable on a
+cluster; everything else runs anywhere.
+
+### Test groups
+
+**Pure-Python unit tests (no Spark) — run in CI and on-cluster:**
+- Country derivation in `settings.py` — ISO3 → ISO2/name for the 36, covering
+  PSE/SRB/YEM and LAO.
+- Widget parsing/fallback — `FORCE_RECOMPUTE`, `INCLUDE_ADM_LEVEL0`; single shared
+  `H3_RESOLUTION`.
+- `shared/core.py` naming — updated ISO3-based LGU assertions.
+- Real algorithm coverage by calling actual functions:
+  `shared.core.solve_mclp_greedy`, `get_k_rings`, and
+  `transform/01_prepare.generate_grid_in_polygon` (pure pandas/shapely).
+
+**Databricks-only Spark tests (need real H3 SQL) — on-cluster gate only,
+`@pytest.mark.databricks`, skipped when `not is_databricks()`:**
+- `transform/01_prepare.add_facility_h3_index` and `.locations_pdf_to_spark`.
+- `transform/02_coverage._compute_coverage_h3_internal` — the **pure transform**
+  (returns DataFrames), NOT the `compute_coverage_h3` wrapper (which
+  `saveAsTable`s, `02_coverage.py:133-134`) — on small synthetic input, asserting
+  coverage numbers.
+- population H3 indexing (`02_population`).
 
 ### Pipeline test gate (`run_tests` task)
 
-Runs the **full** suite (incl. `test_integration.py`) as the first task in the
-`pipeline` job, gating every run. It must **never** read/write `prd_mega` (dev
-`pim` or prod `sgpbpi163`) tables or volumes. Mechanism:
+First task in the `pipeline` job, gating every run. Runs `pytest tests/` in the
+cluster **notebook process** so the Databricks-marked tests use the cluster's
+native Spark session (real H3 SQL). The `spark` fixture becomes cluster-aware: on
+Databricks it uses the existing session and does **not** call `spark.stop()`
+(which would tear down the shared cluster session, breaking downstream tasks);
+locally it builds and stops a `local[2]` session. `%pip install pytest` if the
+cluster image lacks it (already a declared dep).
 
-- Run pytest in an **isolated subprocess** on the driver
-  (`subprocess.run([sys.executable, "-m", "pytest", "tests/", ...])`) with a
-  **scrubbed environment**: `DATABRICKS_RUNTIME_VERSION` and the Databricks
-  connection vars removed, and a temp `base_dir`. This forces
-  `detect_environment()` → `LOCAL`, so `get_storage_backend()` returns the
-  `LocalStorageBackend` (no UC writes), and the integration tests get their own
-  in-process local Spark. Because it is a fresh process, the fixture's
-  `spark.stop()` tears down only that local Spark — the cluster session is
-  untouched. The task raises on non-zero pytest exit, failing the pipeline.
-- `%pip install pytest` (already a declared dep) if the cluster image lacks it.
+### Write-safety (no prod/dev writes) — hard requirement
 
-### Write-safety guard (defense in depth)
-
-Add `tests/conftest.py` with an autouse, session-scoped fixture that **asserts
-`shared.env.is_local()` and that the resolved storage backend's `base_dir` is a
-temp path** before any test runs. If the suite is ever launched in a context that
-resolves to a Databricks backend, it hard-fails instead of writing to a real
-destination. Verified today: `test_integration.py` performs no UC/volume writes
-(tempfile + local Spark only), and `test_env.py` writes only through an explicit
-`LocalStorageBackend(temp_dir)`; this guard keeps that invariant enforced.
+- Spark tests call only the **pure transform functions that return DataFrames**
+  and assert in-memory; they never call the caching wrappers that `saveAsTable`
+  to UC.
+- `tests/conftest.py` autouse session guard **patches the UC-write entry points**
+  — `pyspark.sql.DataFrameWriter.saveAsTable` and the storage-backend `save_*` /
+  `gdf_to_uc_table` helpers — to raise during the test session. Any accidental
+  write to `prd_mega` (dev `pim` or prod `sgpbpi163`) fails the test instead of
+  mutating data. This holds regardless of environment (works for the on-cluster
+  gate, where forcing local mode is not possible because H3 tests need the real
+  session).
 
 ### CI (GitHub Actions)
 
-Add a workflow (alongside the existing `compliance.yml`) that runs **unit tests
-only** — `pytest tests/test_core.py tests/test_env.py` — on push/PR. Excludes
-`test_integration.py` to avoid provisioning PySpark/Java in the runner (the
-integration tests run in the on-cluster gate instead). There is no test CI today.
+New workflow (alongside `compliance.yml`): runs the **pure-Python unit tests
+only** — `pytest -m "not databricks"` — on push/PR, so the runner needs no
+PySpark/Java. The Spark/H3 tests run in the on-cluster gate. There is no test CI
+today.
+
+### Validate
+
+- `databricks bundle validate` for both `dev-wei` and `prod`.
 
 ## Out of scope
 
