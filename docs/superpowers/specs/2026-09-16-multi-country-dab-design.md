@@ -137,8 +137,14 @@ Verified the dashboard is unaffected by the LGU rename:
 - The tables it *does* read are already ISO3-named, from `prd_mega.sgpbpi163`:
   `health_facilities_{iso3}_osm` (+ `_{slug}_province`),
   `lgu_accessibility_results_{iso3}_{suffix}` (+ province variants), and
-  `gadm_boundaries_{iso3}` (GADM, a separate source our pipeline does not
-  produce; currently hardcoded to Zambia in `queries.py`).
+  `base_dashboard_data_{iso3}` (map center + boundary geometry + baselines).
+- **The dashboard's map boundary IS the WB official boundary.** The AOI
+  `geometry_wkt` in `base_dashboard_data_{iso3}` is populated by
+  `transform/03_optimize.py:421-424` from `tables["boundaries"]` =
+  `wb_boundaries_{iso3}` (`shared/core.py:157,170`), written at
+  `03_optimize.py:454`, and read back in `pimpam-dash/queries.py:312-320,360`.
+  The `gadm_boundaries_zmb` reference (`queries.py:443-461`,
+  `get_gadm_boundary_wkt`) is dead legacy code — no callers.
 
 **Constraint:** this work must NOT rename or alter `health_facilities_{iso3}_osm`
 or `lgu_accessibility_results_{iso3}_*` — the dashboard depends on both. The
