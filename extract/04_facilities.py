@@ -43,6 +43,10 @@ def _get_retry_session():
 
 # COMMAND ----------
 
+# MAGIC %run "../shared/core"
+
+# COMMAND ----------
+
 # MAGIC %run "../shared/env"
 
 # COMMAND ----------
@@ -58,6 +62,7 @@ def _get_retry_session():
 # Local imports (skipped in Databricks where %run loads modules)
 import os
 if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
+    from shared.core import should_load_country_cache
     from shared.env import (
         get_spark,
         gdf_to_uc_table,
@@ -198,16 +203,10 @@ out center;
 
         return pd.DataFrame(rows, columns=["osm_id", "lat", "lon", "name"])
 
-    # Perform country extraction once, province data can be cliped from country data
-    if adm_level1 == None:
-        extract_country_cache = force
-    else:
-        print(f"Switching to country level cache for processing {adm_level1}")
-        # Always make sure country (adm_level=None) is run first in loop
-        extract_country_cache = False
-
+    # Perform country extraction once; province data can be clipped from country data.
     # --- Country-level raw OSM cache (pre-boundary-filter) ---
-    if country_raw_table and not extract_country_cache and table_exists(country_raw_table):
+    country_cache_exists = bool(country_raw_table) and table_exists(country_raw_table)
+    if should_load_country_cache(force, country_cache_exists):
         print(f"Loading cached country-level OSM data from: {country_raw_table}")
         
         # Once country-level extractions are already done, call them directly from the table to avoid re-running for province level

@@ -267,3 +267,20 @@ class TestDeduplicateColumns:
     def test_empty_list(self):
         result = deduplicate_columns([])
         assert result == []
+
+
+from shared.core import should_load_country_cache
+
+
+class TestShouldLoadCountryCache:
+    """Tests for the facility country-cache decision (#5/#6)."""
+
+    def test_reuses_when_present_and_not_forcing(self):
+        assert should_load_country_cache(force=False, country_cache_exists=True) is True
+
+    def test_forcing_never_reuses(self):
+        # #6: a forced run must re-query, never read a possibly-stale country cache.
+        assert should_load_country_cache(force=True, country_cache_exists=True) is False
+
+    def test_no_reuse_when_absent(self):
+        assert should_load_country_cache(force=False, country_cache_exists=False) is False

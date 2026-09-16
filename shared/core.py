@@ -86,6 +86,16 @@ def _sanitize_adm_name(name: str) -> str:
     s = re.sub(r"_+", "_", s)
     return s.strip("_")
 
+def should_load_country_cache(force: bool, country_cache_exists: bool) -> bool:
+    """Whether to reuse the cached country-level OSM extract instead of re-querying.
+
+    A forced run must never reuse a possibly-stale cache (#6); otherwise reuse it
+    when it exists. Applies to both country and province passes — the country pass
+    builds the cache in the same run, so there is no separate branch (#5).
+    """
+    return (not force) and country_cache_exists
+
+
 def get_extract_table_names(
     catalog: str,
     schema: str,
