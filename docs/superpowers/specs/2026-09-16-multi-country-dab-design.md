@@ -1,7 +1,26 @@
 # Multi-Country DAB Packaging — Design
 
 Date: 2026-09-16
-Status: Proposed (awaiting review)
+Status: In progress — test framework slice implemented; remaining slices proposed.
+
+## Implementation status
+
+Built first (so later refactors have a safety net):
+
+- **Done — test framework & CI** (commit `c155fe2`): extracted transform ops into
+  `shared/transform_ops.py`, replaced the library smoke-tests with real tests,
+  added the cluster-aware `spark` fixture, UC-write guard, `databricks` marker +
+  off-cluster auto-skip, `.github/workflows/tests.yml`, and the `tests/run_tests.py`
+  gate notebook. See sections 7 and Testing.
+
+Pending:
+
+- Country/config parameterization (`shared/settings.py`) — section 1.
+- LGU naming standardization — section 2. WB URL fix — section 3.
+- DAB restructure incl. wiring the `run_tests` task — section 4.
+- Review-item polish (#5/#6) — section 5. `pycountry` dep — section 6.
+- Feature-specific tests (country/ISO derivation, new widgets, ISO3 LGU naming)
+  land TDD-style with their slices, not in the framework slice above.
 
 ## Goal
 
@@ -156,23 +175,33 @@ there instead of defining their own copies.
 
 - Add `pycountry` to `requirements.txt` and `pyproject.toml`.
 
-### 7. Test gate & CI
+### 7. Test gate & CI — DONE (commit `c155fe2`)
 
-- **Replace `tests/test_integration.py`** (library smoke-tests that import no
-  project code) with real tests: pure-Python coverage of `solve_mclp_greedy` /
-  `generate_grid_in_polygon` / country/widget logic, and `@pytest.mark.databricks`
-  Spark tests calling the real H3 transforms (`add_facility_h3_index`,
-  `_compute_coverage_h3_internal`, population H3 indexing). See Testing.
-- Make the `spark` fixture cluster-aware (use the existing cluster session, no
-  `spark.stop()` on Databricks).
-- New `tests/conftest.py` — autouse guard patching UC-write entry points
-  (`DataFrameWriter.saveAsTable`, storage-backend `save_*` / `gdf_to_uc_table`)
-  so tests can never write to `prd_mega`.
-- New `tests/run_tests.py` Databricks notebook — the `pipeline` job's first task;
-  runs `pytest tests/` in the cluster session (see Testing).
-- New `.github/workflows/tests.yml` — `pytest -m "not databricks"` on push/PR.
-- `databricks.yml` — add the `run_tests` task; the first extract task
-  `depends_on` it.
+- **Extract testable transform ops into `shared/transform_ops.py`** (importable,
+  `# Databricks notebook source` so `%run` works, side-effect-free):
+  `generate_grid_in_polygon`, `add_facility_h3_index`, and
+  `compute_coverage_h3_internal` (renamed from the notebook-private
+  `_compute_coverage_h3_internal`). Needed because these lived in the
+  un-importable `01_prepare.py` / `02_coverage.py` (digit-prefixed filenames +
+  module-level side effects). The notebooks now `%run`/import them. pyspark is
+  imported lazily inside the H3 helpers so the module stays PySpark-free.
+- **Replace `tests/test_integration.py`** (library smoke-tests that imported no
+  project code) with `tests/test_transform_ops.py`: a pure `generate_grid_in_polygon`
+  test (CI) and `@pytest.mark.databricks` Spark tests calling the real H3
+  transforms. `test_core.py` already covers `solve_mclp_greedy` / `get_k_rings`.
+- `tests/conftest.py` — cluster-aware `spark` fixture (uses the existing cluster
+  session, no `spark.stop()` on Databricks); autouse guard patching UC-write entry
+  points (`DataFrameWriter.saveAsTable`, `gdf_to_uc_table`,
+  `DatabricksStorageBackend.save_*`) so tests can never write to `prd_mega`;
+  auto-skip of `databricks`-marked tests when `not is_databricks()`.
+- `tests/run_tests.py` Databricks notebook — runs `pytest tests/` in the cluster
+  session; raises on failure. (Wiring it into `databricks.yml` is deferred to
+  section 4, which creates the merged `pipeline` job.)
+- `.github/workflows/tests.yml` — `pytest -m "not databricks"` on push/PR,
+  installing `.[dev]` (PySpark-free).
+- `databricks` marker registered in `pyproject.toml`.
+- **Deferred to section 4:** add the `run_tests` task to `databricks.yml`; the
+  first extract task `depends_on` it.
 
 ## Rollout / migration
 
@@ -235,16 +264,17 @@ cluster; everything else runs anywhere.
   `H3_RESOLUTION`.
 - `shared/core.py` naming — updated ISO3-based LGU assertions.
 - Real algorithm coverage by calling actual functions:
-  `shared.core.solve_mclp_greedy`, `get_k_rings`, and
-  `transform/01_prepare.generate_grid_in_polygon` (pure pandas/shapely).
+  `shared.core.solve_mclp_greedy`, `get_k_rings` (both already in `test_core.py`),
+  and `shared.transform_ops.generate_grid_in_polygon` (pure pandas/shapely).
 
 **Databricks-only Spark tests (need real H3 SQL) — on-cluster gate only,
 `@pytest.mark.databricks`, skipped when `not is_databricks()`:**
-- `transform/01_prepare.add_facility_h3_index` and `.locations_pdf_to_spark`.
-- `transform/02_coverage._compute_coverage_h3_internal` — the **pure transform**
+- `shared.transform_ops.add_facility_h3_index` (extracted from `01_prepare.py`).
+  (`locations_pdf_to_spark` was left in the notebook — it depends on the
+  `st_point_wkt` UDF and module-level `spark` — so it is not tested this slice.)
+- `shared.transform_ops.compute_coverage_h3_internal` — the **pure transform**
   (returns DataFrames), NOT the `compute_coverage_h3` wrapper (which
-  `saveAsTable`s, `02_coverage.py:133-134`) — on small synthetic input, asserting
-  coverage numbers.
+  `saveAsTable`s) — on small synthetic input, asserting coverage numbers.
 - population H3 indexing (`02_population`).
 
 ### Pipeline test gate (`run_tests` task)
