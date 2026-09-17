@@ -35,6 +35,12 @@ targets:
 # %run (control plane — no driver-FS dependency). The test gate instead installs the
 # project wheel from a UC Volume and runs `pytest --pyargs tests`, because this
 # cluster does not mount /Workspace files to the driver (see tests/run_tests.py).
+# pycountry is a new pure-Python dep imported by shared/settings; every notebook
+# that %runs settings needs it on the cluster (other deps are already present).
+x-py-libs: &py_libs
+  - pypi:
+      package: pycountry
+
 x-pipeline-params: &pipeline_params
   COUNTRY_ISO3: "{{job.parameters.COUNTRY_ISO3}}"
   UC_SCHEMA: "{{job.parameters.UC_SCHEMA}}"
@@ -50,6 +56,7 @@ resources:
       tasks:
         - task_key: run_tests
           existing_cluster_id: ${var.cluster_id}
+          libraries: *py_libs
           notebook_task:
             notebook_path: ${workspace.file_path}/tests/run_tests
             base_parameters:
@@ -73,6 +80,7 @@ resources:
       tasks:
         - task_key: run_tests
           existing_cluster_id: ${var.cluster_id}
+          libraries: *py_libs
           notebook_task:
             notebook_path: ${workspace.file_path}/tests/run_tests
             base_parameters:
@@ -80,6 +88,7 @@ resources:
 
         - task_key: download_worldpop
           existing_cluster_id: ${var.cluster_id}
+          libraries: *py_libs
           depends_on:
             - task_key: run_tests
           notebook_task:
@@ -88,6 +97,7 @@ resources:
 
         - task_key: download_wb
           existing_cluster_id: ${var.cluster_id}
+          libraries: *py_libs
           depends_on:
             - task_key: run_tests
           notebook_task:
@@ -96,6 +106,7 @@ resources:
 
         - task_key: population
           existing_cluster_id: ${var.cluster_id}
+          libraries: *py_libs
           depends_on:
             - task_key: download_worldpop
           notebook_task:
@@ -104,6 +115,7 @@ resources:
 
         - task_key: boundaries
           existing_cluster_id: ${var.cluster_id}
+          libraries: *py_libs
           depends_on:
             - task_key: download_wb
           notebook_task:
@@ -112,6 +124,7 @@ resources:
 
         - task_key: facilities
           existing_cluster_id: ${var.cluster_id}
+          libraries: *py_libs
           depends_on:
             - task_key: boundaries
           notebook_task:
@@ -120,6 +133,7 @@ resources:
 
         - task_key: prepare
           existing_cluster_id: ${var.cluster_id}
+          libraries: *py_libs
           depends_on:
             - task_key: facilities
             - task_key: population
@@ -129,6 +143,7 @@ resources:
 
         - task_key: coverage
           existing_cluster_id: ${var.cluster_id}
+          libraries: *py_libs
           depends_on:
             - task_key: prepare
           notebook_task:
@@ -137,6 +152,7 @@ resources:
 
         - task_key: optimize
           existing_cluster_id: ${var.cluster_id}
+          libraries: *py_libs
           depends_on:
             - task_key: coverage
           notebook_task:
@@ -145,6 +161,7 @@ resources:
 
         - task_key: visualize
           existing_cluster_id: ${var.cluster_id}
+          libraries: *py_libs
           depends_on:
             - task_key: optimize
           notebook_task:

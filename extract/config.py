@@ -19,8 +19,6 @@
 # Local imports (skipped in Databricks where %run loads modules)
 import os
 import geopandas as gpd
-import re
-import unicodedata
 if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
     from shared.core import get_extract_table_names
     from shared.env import file_exists

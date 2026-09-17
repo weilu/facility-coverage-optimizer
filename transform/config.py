@@ -18,8 +18,6 @@
 
 # Local imports (skipped in Databricks where %run loads modules)
 import os
-import re
-import unicodedata
 if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
     from shared.core import (
         get_k_rings,

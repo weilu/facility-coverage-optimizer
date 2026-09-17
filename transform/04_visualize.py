@@ -24,7 +24,6 @@ dbutils.library.restartPython()
 
 import datetime
 
-import pandas as pd
 import plotly.graph_objects as go
 import folium as fl
 

@@ -26,7 +26,6 @@ dbutils.library.restartPython()
 import pandas as pd
 from shapely.geometry import Point
 from shapely import wkt as shapely_wkt
-from shapely.ops import unary_union
 
 from pyspark.sql import functions as F
 

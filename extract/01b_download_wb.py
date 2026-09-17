@@ -19,8 +19,6 @@ dbutils.library.restartPython()
 
 # COMMAND ----------
 
-import os
-import requests
 import geopandas as gpd
 
 # COMMAND ----------
