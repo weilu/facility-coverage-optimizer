@@ -9,7 +9,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install pytest
+# MAGIC %pip install pytest pycountry
 
 # COMMAND ----------
 
