@@ -2,8 +2,6 @@ bundle:
   name: health-facility-optimizer
 
 variables:
-  workspace_root:
-    description: "Workspace root path for notebooks"
   uc_schema:
     description: "Unity Catalog schema (passed to notebooks via dbutils.widgets)"
   uc_volume:
@@ -17,23 +15,25 @@ variables:
 targets:
   dev-wei:
     default: true
+    mode: development
     workspace:
       profile: adb-6102124407836814
     variables:
-      workspace_root: /Repos/wlu4@worldbank.org/facility-coverage-optimizer
       uc_schema: pim
       uc_volume: pim/vpim
       cluster_id: 0212-012600-43y69ksy  # ITSDA_DAP_TEAM_gpbpinfrastructureanalysispimpam
   prod:
+    mode: production
     workspace:
       profile: adb-6102124407836814
     variables:
-      workspace_root: /Workspace/Users/wlu4@worldbank.org/facility-coverage-optimizer
       uc_schema: sgpbpi163
       uc_volume: sgpbpi163/vgpbpi163
       cluster_id: 0212-012600-43y69ksy  # ITSDA_DAP_TEAM_gpbpinfrastructureanalysispimpam
 
-# Reusable per-task notebook parameters (country + run-control, from job parameters)
+# Notebooks run from the deployed bundle root (${workspace.file_path}), which
+# `databricks bundle deploy` syncs to the workspace and the cluster reads on its
+# driver filesystem — so pytest can import/discover the code (see tests/run_tests.py).
 x-pipeline-params: &pipeline_params
   COUNTRY_ISO3: "{{job.parameters.COUNTRY_ISO3}}"
   UC_SCHEMA: "{{job.parameters.UC_SCHEMA}}"
@@ -44,6 +44,16 @@ x-pipeline-params: &pipeline_params
 
 resources:
   jobs:
+    tests:
+      name: "HFO - Tests (on-cluster gate)"
+      tasks:
+        - task_key: run_tests
+          existing_cluster_id: ${var.cluster_id}
+          notebook_task:
+            notebook_path: ${workspace.file_path}/tests/run_tests
+            base_parameters:
+              repo_root: ${workspace.file_path}
+
     pipeline:
       name: "HFO - Pipeline (single country)"
       parameters:
@@ -63,14 +73,16 @@ resources:
         - task_key: run_tests
           existing_cluster_id: ${var.cluster_id}
           notebook_task:
-            notebook_path: ${var.workspace_root}/tests/run_tests
+            notebook_path: ${workspace.file_path}/tests/run_tests
+            base_parameters:
+              repo_root: ${workspace.file_path}
 
         - task_key: download_worldpop
           existing_cluster_id: ${var.cluster_id}
           depends_on:
             - task_key: run_tests
           notebook_task:
-            notebook_path: ${var.workspace_root}/extract/01a_download_worldpop
+            notebook_path: ${workspace.file_path}/extract/01a_download_worldpop
             base_parameters: *pipeline_params
 
         - task_key: download_wb
@@ -78,7 +90,7 @@ resources:
           depends_on:
             - task_key: run_tests
           notebook_task:
-            notebook_path: ${var.workspace_root}/extract/01b_download_wb
+            notebook_path: ${workspace.file_path}/extract/01b_download_wb
             base_parameters: *pipeline_params
 
         - task_key: population
@@ -86,7 +98,7 @@ resources:
           depends_on:
             - task_key: download_worldpop
           notebook_task:
-            notebook_path: ${var.workspace_root}/extract/02_population
+            notebook_path: ${workspace.file_path}/extract/02_population
             base_parameters: *pipeline_params
 
         - task_key: boundaries
@@ -94,7 +106,7 @@ resources:
           depends_on:
             - task_key: download_wb
           notebook_task:
-            notebook_path: ${var.workspace_root}/extract/03_boundaries
+            notebook_path: ${workspace.file_path}/extract/03_boundaries
             base_parameters: *pipeline_params
 
         - task_key: facilities
@@ -102,7 +114,7 @@ resources:
           depends_on:
             - task_key: boundaries
           notebook_task:
-            notebook_path: ${var.workspace_root}/extract/04_facilities
+            notebook_path: ${workspace.file_path}/extract/04_facilities
             base_parameters: *pipeline_params
 
         - task_key: prepare
@@ -111,7 +123,7 @@ resources:
             - task_key: facilities
             - task_key: population
           notebook_task:
-            notebook_path: ${var.workspace_root}/transform/01_prepare
+            notebook_path: ${workspace.file_path}/transform/01_prepare
             base_parameters: *pipeline_params
 
         - task_key: coverage
@@ -119,7 +131,7 @@ resources:
           depends_on:
             - task_key: prepare
           notebook_task:
-            notebook_path: ${var.workspace_root}/transform/02_coverage
+            notebook_path: ${workspace.file_path}/transform/02_coverage
             base_parameters: *pipeline_params
 
         - task_key: optimize
@@ -127,7 +139,7 @@ resources:
           depends_on:
             - task_key: coverage
           notebook_task:
-            notebook_path: ${var.workspace_root}/transform/03_optimize
+            notebook_path: ${workspace.file_path}/transform/03_optimize
             base_parameters: *pipeline_params
 
         - task_key: visualize
@@ -135,7 +147,7 @@ resources:
           depends_on:
             - task_key: optimize
           notebook_task:
-            notebook_path: ${var.workspace_root}/transform/04_visualize
+            notebook_path: ${workspace.file_path}/transform/04_visualize
             base_parameters:
               COUNTRY_ISO3: "{{job.parameters.COUNTRY_ISO3}}"
               UC_SCHEMA: "{{job.parameters.UC_SCHEMA}}"
