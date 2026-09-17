@@ -21,6 +21,13 @@ subprocess.run(
      "health-facility-location-optimizer", "pytest"],
     check=True,
 )
+# Force the package itself to the just-published wheel (version is static, so a
+# plain install would keep a previously-installed copy); deps are already satisfied.
+subprocess.run(
+    [sys.executable, "-m", "pip", "install", "--quiet", "--find-links", dist_dir,
+     "--force-reinstall", "--no-deps", "health-facility-location-optimizer"],
+    check=True,
+)
 
 # COMMAND ----------
 

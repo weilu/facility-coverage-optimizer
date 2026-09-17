@@ -13,6 +13,7 @@ from shared.env import (
     is_local,
     is_databricks,
     LocalStorageBackend,
+    DatabricksStorageBackend,
     get_storage_backend,
     reset_storage_backend,
 )
@@ -38,16 +39,14 @@ class TestEnvironmentDetection:
                 os.environ["DATABRICKS_RUNTIME_VERSION"] = old_val
 
     def test_is_local(self):
-        """Test is_local helper."""
+        """is_local is always the inverse of is_databricks (runs locally and on-cluster)."""
         reset_storage_backend()
-        # In test environment, should always be local
-        assert is_local() is True
+        assert is_local() is (not is_databricks())
 
     def test_is_databricks(self):
-        """Test is_databricks helper."""
+        """is_databricks reflects the DATABRICKS_RUNTIME_VERSION env (true on a cluster)."""
         reset_storage_backend()
-        # In test environment, should not be Databricks
-        assert is_databricks() is False
+        assert is_databricks() is bool(os.environ.get("DATABRICKS_RUNTIME_VERSION"))
 
 
 class TestLocalStorageBackend:
@@ -148,10 +147,11 @@ class TestStorageBackendFactory:
         """Reset cached backend before each test."""
         reset_storage_backend()
 
-    def test_get_storage_backend_returns_local(self):
-        """Test that factory returns LocalStorageBackend in test environment."""
+    def test_get_storage_backend_matches_environment(self):
+        """Factory returns the backend for the current environment (local or Databricks)."""
         backend = get_storage_backend()
-        assert isinstance(backend, LocalStorageBackend)
+        expected = DatabricksStorageBackend if is_databricks() else LocalStorageBackend
+        assert isinstance(backend, expected)
 
     def test_get_storage_backend_caches(self):
         """Test that factory caches the backend."""
