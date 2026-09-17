@@ -153,4 +153,11 @@ uv run pytest tests/ --cov=shared --cov=extract --cov=transform
 
 # The @pytest.mark.databricks tests (real H3 SQL) run on a cluster via the
 # tests/run_tests.py notebook, which is the pipeline job's first (gate) task.
+#
+# On-cluster gate: this cluster does not mount /Workspace files to the driver, so
+# the gate installs the project wheel (which bundles tests/) from a UC Volume and
+# runs `pytest --pyargs tests`. Publish/refresh the wheel whenever code changes:
+#   DATABRICKS_PROFILE=adb-6102124407836814 scripts/publish_wheel.sh dev-wei
+# CI (.github/workflows/publish-wheel.yml) does this on merge to main (needs
+# DATABRICKS_HOST + DATABRICKS_CLIENT_ID + DATABRICKS_CLIENT_SECRET repo secrets).
 ```

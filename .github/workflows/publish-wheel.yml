@@ -1,0 +1,50 @@
+name: Publish test wheel
+
+# Builds the project wheel (with tests/ bundled) and publishes it to the target's
+# UC Volume, where the on-cluster test gate pip-installs it. Runs on merge to main
+# (prod volume) and on demand. Requires these repo secrets for Databricks auth:
+#   DATABRICKS_HOST, DATABRICKS_CLIENT_ID, DATABRICKS_CLIENT_SECRET  (OAuth M2M)
+# If the secrets are absent the job no-ops with a notice instead of failing.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Bundle target (dev-wei or prod)"
+        default: prod
+
+permissions:
+  contents: read
+
+jobs:
+  publish-wheel:
+    runs-on: ubuntu-latest
+    env:
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      TARGET: ${{ github.event.inputs.target || 'prod' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Databricks secrets
+        id: check
+        run: |
+          if [ -z "${DATABRICKS_HOST}" ] || [ -z "${DATABRICKS_CLIENT_ID}" ] || [ -z "${DATABRICKS_CLIENT_SECRET}" ]; then
+            echo "::notice::Databricks secrets not set — skipping wheel publish. Add DATABRICKS_HOST/DATABRICKS_CLIENT_ID/DATABRICKS_CLIENT_SECRET to enable."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: astral-sh/setup-uv@v3
+        if: steps.check.outputs.ok == 'true'
+
+      - uses: databricks/setup-cli@main
+        if: steps.check.outputs.ok == 'true'
+
+      - name: Build & publish wheel
+        if: steps.check.outputs.ok == 'true'
+        run: scripts/publish_wheel.sh "${TARGET}"
