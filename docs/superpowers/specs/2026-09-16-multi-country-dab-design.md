@@ -23,9 +23,17 @@ targets `databricks bundle validate` OK.
   `prod` target; deleted `pipeline_runner.py`.
 - Created managed dev volume `prd_mega.pim.vpim`; `dev-wei` uses `pim` / `pim/vpim`.
 
-**Pending:** dev-pipeline verification on `dev-wei` (run one country into `pim`,
-confirm ISO3-named tables + WB fetch + no prod writes); then finalize/merge.
-Feature-specific tests were written TDD-style with each slice.
+**On-cluster test gate — WORKING (verified 2026-09-17):** cluster `0212` does not
+mount `/Workspace` to the driver FS, so pytest can't discover/import code deployed
+via sync/Repo/bundle/source:GIT. Solved with the prospects pattern — build a wheel
+bundling `tests/`, publish to a UC Volume (`/Volumes/prd_mega/pim/vpim/dist/`),
+`pip install` it on the cluster and run `pytest --pyargs tests`. Full suite passes
+on-cluster incl. the H3 tests. Operational step: the wheel must be rebuilt+
+published on code change (not yet wired into CI). See [[dev-cluster-wsfs-limitation]].
+
+**Pending:** wire wheel build+publish into CI/deploy (+ publish to the prod
+volume); dev full-pipeline run for one country into `pim` (Checkpoint C);
+then finalize/merge. Feature-specific tests were written TDD-style with each slice.
 
 ## Goal
 
