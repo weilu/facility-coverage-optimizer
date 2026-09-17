@@ -20,7 +20,7 @@ targets:
     workspace:
       profile: adb-6102124407836814
     variables:
-      workspace_root: /Workspace/Users/wlu4@worldbank.org/facility-coverage-optimizer
+      workspace_root: /Repos/wlu4@worldbank.org/facility-coverage-optimizer
       uc_schema: pim
       uc_volume: pim/vpim
       cluster_id: 0212-012600-43y69ksy  # ITSDA_DAP_TEAM_gpbpinfrastructureanalysispimpam
