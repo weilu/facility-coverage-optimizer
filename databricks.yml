@@ -8,6 +8,8 @@ variables:
     description: "Volume path segment 'schema/volume' for file caches"
   cluster_id:
     description: "Existing cluster ID (find via: databricks clusters list)"
+  git_branch:
+    description: "Git branch the jobs check out (source: GIT)"
   countries:
     description: "JSON array of ISO3 codes for the batch job"
     default: '["AFG","BEN","BFA","BGD","CIV","CMR","DJI","ETH","GAB","GIN","GMB","GNQ","HTI","IND","JPN","KHM","LAO","MLI","MWI","NER","NGA","NPL","PAK","PSE","ROU","SDN","SEN","SOM","SRB","SSD","SYR","TCD","TGO","UZB","YEM","ZMB"]'
@@ -22,6 +24,7 @@ targets:
       uc_schema: pim
       uc_volume: pim/vpim
       cluster_id: 0212-012600-43y69ksy  # ITSDA_DAP_TEAM_gpbpinfrastructureanalysispimpam
+      git_branch: multi-country-dab
   prod:
     mode: production
     workspace:
@@ -30,10 +33,17 @@ targets:
       uc_schema: sgpbpi163
       uc_volume: sgpbpi163/vgpbpi163
       cluster_id: 0212-012600-43y69ksy  # ITSDA_DAP_TEAM_gpbpinfrastructureanalysispimpam
+      git_branch: main
 
-# Notebooks run from the deployed bundle root (${workspace.file_path}), which
-# `databricks bundle deploy` syncs to the workspace and the cluster reads on its
-# driver filesystem — so pytest can import/discover the code (see tests/run_tests.py).
+# Code is delivered to the cluster via a per-run git checkout (source: GIT), which
+# lands on the driver's local filesystem — unlike /Workspace files, which this
+# single-user (service-principal) cluster does not mount. That local checkout is
+# what lets the pytest gate import/discover the code (see tests/run_tests.py).
+x-git-source: &git_source
+  git_url: https://github.com/weilu/facility-coverage-optimizer.git
+  git_provider: gitHub
+  git_branch: ${var.git_branch}
+
 x-pipeline-params: &pipeline_params
   COUNTRY_ISO3: "{{job.parameters.COUNTRY_ISO3}}"
   UC_SCHEMA: "{{job.parameters.UC_SCHEMA}}"
@@ -46,16 +56,17 @@ resources:
   jobs:
     tests:
       name: "HFO - Tests (on-cluster gate)"
+      git_source: *git_source
       tasks:
         - task_key: run_tests
           existing_cluster_id: ${var.cluster_id}
           notebook_task:
-            notebook_path: ${workspace.file_path}/tests/run_tests
-            base_parameters:
-              repo_root: ${workspace.file_path}
+            notebook_path: tests/run_tests
+            source: GIT
 
     pipeline:
       name: "HFO - Pipeline (single country)"
+      git_source: *git_source
       parameters:
         - name: COUNTRY_ISO3
           default: LAO
@@ -73,16 +84,16 @@ resources:
         - task_key: run_tests
           existing_cluster_id: ${var.cluster_id}
           notebook_task:
-            notebook_path: ${workspace.file_path}/tests/run_tests
-            base_parameters:
-              repo_root: ${workspace.file_path}
+            notebook_path: tests/run_tests
+            source: GIT
 
         - task_key: download_worldpop
           existing_cluster_id: ${var.cluster_id}
           depends_on:
             - task_key: run_tests
           notebook_task:
-            notebook_path: ${workspace.file_path}/extract/01a_download_worldpop
+            notebook_path: extract/01a_download_worldpop
+            source: GIT
             base_parameters: *pipeline_params
 
         - task_key: download_wb
@@ -90,7 +101,8 @@ resources:
           depends_on:
             - task_key: run_tests
           notebook_task:
-            notebook_path: ${workspace.file_path}/extract/01b_download_wb
+            notebook_path: extract/01b_download_wb
+            source: GIT
             base_parameters: *pipeline_params
 
         - task_key: population
@@ -98,7 +110,8 @@ resources:
           depends_on:
             - task_key: download_worldpop
           notebook_task:
-            notebook_path: ${workspace.file_path}/extract/02_population
+            notebook_path: extract/02_population
+            source: GIT
             base_parameters: *pipeline_params
 
         - task_key: boundaries
@@ -106,7 +119,8 @@ resources:
           depends_on:
             - task_key: download_wb
           notebook_task:
-            notebook_path: ${workspace.file_path}/extract/03_boundaries
+            notebook_path: extract/03_boundaries
+            source: GIT
             base_parameters: *pipeline_params
 
         - task_key: facilities
@@ -114,7 +128,8 @@ resources:
           depends_on:
             - task_key: boundaries
           notebook_task:
-            notebook_path: ${workspace.file_path}/extract/04_facilities
+            notebook_path: extract/04_facilities
+            source: GIT
             base_parameters: *pipeline_params
 
         - task_key: prepare
@@ -123,7 +138,8 @@ resources:
             - task_key: facilities
             - task_key: population
           notebook_task:
-            notebook_path: ${workspace.file_path}/transform/01_prepare
+            notebook_path: transform/01_prepare
+            source: GIT
             base_parameters: *pipeline_params
 
         - task_key: coverage
@@ -131,7 +147,8 @@ resources:
           depends_on:
             - task_key: prepare
           notebook_task:
-            notebook_path: ${workspace.file_path}/transform/02_coverage
+            notebook_path: transform/02_coverage
+            source: GIT
             base_parameters: *pipeline_params
 
         - task_key: optimize
@@ -139,7 +156,8 @@ resources:
           depends_on:
             - task_key: coverage
           notebook_task:
-            notebook_path: ${workspace.file_path}/transform/03_optimize
+            notebook_path: transform/03_optimize
+            source: GIT
             base_parameters: *pipeline_params
 
         - task_key: visualize
@@ -147,7 +165,8 @@ resources:
           depends_on:
             - task_key: optimize
           notebook_task:
-            notebook_path: ${workspace.file_path}/transform/04_visualize
+            notebook_path: transform/04_visualize
+            source: GIT
             base_parameters:
               COUNTRY_ISO3: "{{job.parameters.COUNTRY_ISO3}}"
               UC_SCHEMA: "{{job.parameters.UC_SCHEMA}}"

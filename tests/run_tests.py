@@ -24,12 +24,22 @@ import contextlib
 
 import pytest
 
-_repo_root = (dbutils.widgets.get("repo_root") or "").strip()
-if not _repo_root:
-    raise RuntimeError(
-        "'repo_root' is not set — expected from the DAB job's base_parameters "
-        "(repo_root: ${workspace.file_path})."
-    )
+# With source: GIT, Databricks checks the repo out to a local driver path and the
+# task's CWD is the notebook's directory (…/tests). Derive the repo root: use CWD
+# if it already contains tests/, else its parent. (A repo_root widget, if passed,
+# still wins — e.g. for a bundle-deploy setup.)
+def _resolve_repo_root() -> str:
+    try:
+        widget = (dbutils.widgets.get("repo_root") or "").strip()
+    except Exception:
+        widget = ""
+    if widget:
+        return widget
+    cwd = os.getcwd()
+    return cwd if os.path.isdir(os.path.join(cwd, "tests")) else os.path.dirname(cwd)
+
+
+_repo_root = _resolve_repo_root()
 os.chdir(_repo_root)
 if _repo_root not in sys.path:
     sys.path.insert(0, _repo_root)
