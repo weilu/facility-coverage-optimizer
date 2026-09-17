@@ -1,5 +1,5 @@
 # Databricks notebook source
-# MAGIC %pip install "numpy<2" shapely rasterio
+# MAGIC %pip install "numpy<2" shapely rasterio pycountry
 
 # COMMAND ----------
 

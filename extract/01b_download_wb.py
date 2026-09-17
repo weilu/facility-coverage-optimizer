@@ -1,5 +1,5 @@
 # Databricks notebook source
-# MAGIC %pip install "numpy<2" geopandas shapely requests
+# MAGIC %pip install "numpy<2" geopandas shapely requests pycountry
 
 # COMMAND ----------
 
