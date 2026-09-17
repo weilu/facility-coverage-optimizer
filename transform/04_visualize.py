@@ -202,10 +202,10 @@ def create_coverage_map(
 # If nothing was updated, fall back to national-level results.
 
 def _get_pipeline_start_time():
-    """Get pipeline start time from job parameter, or fall back to now."""
+    """Get pipeline start time from the job parameter, or fall back to now."""
     try:
-        epoch_ms = int(dbutils.widgets.get("PIPELINE_START_EPOCH_MS"))
-        return datetime.datetime.fromtimestamp(epoch_ms / 1000, tz=datetime.timezone.utc)
+        # DAB passes {{job.start_time.iso_datetime}} (epoch_ms is not a valid ref).
+        return datetime.datetime.fromisoformat(dbutils.widgets.get("PIPELINE_START_ISO"))
     except Exception:
         return datetime.datetime.now(datetime.timezone.utc)
 

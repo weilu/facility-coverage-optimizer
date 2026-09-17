@@ -156,7 +156,7 @@ resources:
               FORCE_RECOMPUTE: "{{job.parameters.FORCE_RECOMPUTE}}"
               INCLUDE_ADM_LEVEL0: "{{job.parameters.INCLUDE_ADM_LEVEL0}}"
               ENABLE_VISUALIZATION: "true"
-              PIPELINE_START_EPOCH_MS: "{{job.start_time.epoch_ms}}"
+              PIPELINE_START_ISO: "{{job.start_time.iso_datetime}}"
 
     batch:
       name: "HFO - Batch (many countries)"
