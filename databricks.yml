@@ -5,11 +5,9 @@ variables:
   uc_schema:
     description: "Unity Catalog schema (passed to notebooks via dbutils.widgets)"
   uc_volume:
-    description: "Volume path segment 'schema/volume' for file caches"
+    description: "Volume path segment 'schema/volume' for file caches and the test wheel"
   cluster_id:
     description: "Existing cluster ID (find via: databricks clusters list)"
-  git_branch:
-    description: "Git branch the jobs check out (source: GIT)"
   countries:
     description: "JSON array of ISO3 codes for the batch job"
     default: '["AFG","BEN","BFA","BGD","CIV","CMR","DJI","ETH","GAB","GIN","GMB","GNQ","HTI","IND","JPN","KHM","LAO","MLI","MWI","NER","NGA","NPL","PAK","PSE","ROU","SDN","SEN","SOM","SRB","SSD","SYR","TCD","TGO","UZB","YEM","ZMB"]'
@@ -24,7 +22,6 @@ targets:
       uc_schema: pim
       uc_volume: pim/vpim
       cluster_id: 0212-012600-43y69ksy  # ITSDA_DAP_TEAM_gpbpinfrastructureanalysispimpam
-      git_branch: multi-country-dab
   prod:
     mode: production
     workspace:
@@ -33,17 +30,11 @@ targets:
       uc_schema: sgpbpi163
       uc_volume: sgpbpi163/vgpbpi163
       cluster_id: 0212-012600-43y69ksy  # ITSDA_DAP_TEAM_gpbpinfrastructureanalysispimpam
-      git_branch: main
 
-# Code is delivered to the cluster via a per-run git checkout (source: GIT), which
-# lands on the driver's local filesystem — unlike /Workspace files, which this
-# single-user (service-principal) cluster does not mount. That local checkout is
-# what lets the pytest gate import/discover the code (see tests/run_tests.py).
-x-git-source: &git_source
-  git_url: https://github.com/weilu/facility-coverage-optimizer.git
-  git_provider: gitHub
-  git_branch: ${var.git_branch}
-
+# Pipeline notebooks are deployed via `databricks bundle deploy` and share code via
+# %run (control plane — no driver-FS dependency). The test gate instead installs the
+# project wheel from a UC Volume and runs `pytest --pyargs tests`, because this
+# cluster does not mount /Workspace files to the driver (see tests/run_tests.py).
 x-pipeline-params: &pipeline_params
   COUNTRY_ISO3: "{{job.parameters.COUNTRY_ISO3}}"
   UC_SCHEMA: "{{job.parameters.UC_SCHEMA}}"
@@ -56,17 +47,16 @@ resources:
   jobs:
     tests:
       name: "HFO - Tests (on-cluster gate)"
-      git_source: *git_source
       tasks:
         - task_key: run_tests
           existing_cluster_id: ${var.cluster_id}
           notebook_task:
-            notebook_path: tests/run_tests
-            source: GIT
+            notebook_path: ${workspace.file_path}/tests/run_tests
+            base_parameters:
+              dist_dir: /Volumes/prd_mega/${var.uc_volume}/dist
 
     pipeline:
       name: "HFO - Pipeline (single country)"
-      git_source: *git_source
       parameters:
         - name: COUNTRY_ISO3
           default: LAO
@@ -84,16 +74,16 @@ resources:
         - task_key: run_tests
           existing_cluster_id: ${var.cluster_id}
           notebook_task:
-            notebook_path: tests/run_tests
-            source: GIT
+            notebook_path: ${workspace.file_path}/tests/run_tests
+            base_parameters:
+              dist_dir: /Volumes/prd_mega/${var.uc_volume}/dist
 
         - task_key: download_worldpop
           existing_cluster_id: ${var.cluster_id}
           depends_on:
             - task_key: run_tests
           notebook_task:
-            notebook_path: extract/01a_download_worldpop
-            source: GIT
+            notebook_path: ${workspace.file_path}/extract/01a_download_worldpop
             base_parameters: *pipeline_params
 
         - task_key: download_wb
@@ -101,8 +91,7 @@ resources:
           depends_on:
             - task_key: run_tests
           notebook_task:
-            notebook_path: extract/01b_download_wb
-            source: GIT
+            notebook_path: ${workspace.file_path}/extract/01b_download_wb
             base_parameters: *pipeline_params
 
         - task_key: population
@@ -110,8 +99,7 @@ resources:
           depends_on:
             - task_key: download_worldpop
           notebook_task:
-            notebook_path: extract/02_population
-            source: GIT
+            notebook_path: ${workspace.file_path}/extract/02_population
             base_parameters: *pipeline_params
 
         - task_key: boundaries
@@ -119,8 +107,7 @@ resources:
           depends_on:
             - task_key: download_wb
           notebook_task:
-            notebook_path: extract/03_boundaries
-            source: GIT
+            notebook_path: ${workspace.file_path}/extract/03_boundaries
             base_parameters: *pipeline_params
 
         - task_key: facilities
@@ -128,8 +115,7 @@ resources:
           depends_on:
             - task_key: boundaries
           notebook_task:
-            notebook_path: extract/04_facilities
-            source: GIT
+            notebook_path: ${workspace.file_path}/extract/04_facilities
             base_parameters: *pipeline_params
 
         - task_key: prepare
@@ -138,8 +124,7 @@ resources:
             - task_key: facilities
             - task_key: population
           notebook_task:
-            notebook_path: transform/01_prepare
-            source: GIT
+            notebook_path: ${workspace.file_path}/transform/01_prepare
             base_parameters: *pipeline_params
 
         - task_key: coverage
@@ -147,8 +132,7 @@ resources:
           depends_on:
             - task_key: prepare
           notebook_task:
-            notebook_path: transform/02_coverage
-            source: GIT
+            notebook_path: ${workspace.file_path}/transform/02_coverage
             base_parameters: *pipeline_params
 
         - task_key: optimize
@@ -156,8 +140,7 @@ resources:
           depends_on:
             - task_key: coverage
           notebook_task:
-            notebook_path: transform/03_optimize
-            source: GIT
+            notebook_path: ${workspace.file_path}/transform/03_optimize
             base_parameters: *pipeline_params
 
         - task_key: visualize
@@ -165,8 +148,7 @@ resources:
           depends_on:
             - task_key: optimize
           notebook_task:
-            notebook_path: transform/04_visualize
-            source: GIT
+            notebook_path: ${workspace.file_path}/transform/04_visualize
             base_parameters:
               COUNTRY_ISO3: "{{job.parameters.COUNTRY_ISO3}}"
               UC_SCHEMA: "{{job.parameters.UC_SCHEMA}}"

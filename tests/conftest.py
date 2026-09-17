@@ -13,6 +13,15 @@ from unittest import mock
 import pytest
 
 
+def pytest_configure(config):
+    # Registered here (not only in pyproject) because on-cluster the suite runs via
+    # `pytest --pyargs tests` from the installed wheel, where pyproject isn't the rootdir.
+    config.addinivalue_line(
+        "markers",
+        "databricks: requires a real Databricks cluster (H3 SQL); skipped off-cluster",
+    )
+
+
 def pytest_collection_modifyitems(config, items):
     """Auto-skip `databricks`-marked tests off-cluster (they need real H3 SQL).
 
