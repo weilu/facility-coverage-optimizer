@@ -150,12 +150,7 @@ resources:
           notebook_task:
             notebook_path: ${workspace.file_path}/transform/04_visualize
             base_parameters:
-              COUNTRY_ISO3: "{{job.parameters.COUNTRY_ISO3}}"
-              UC_SCHEMA: "{{job.parameters.UC_SCHEMA}}"
-              UC_VOLUME: "{{job.parameters.UC_VOLUME}}"
-              POPULATION_YEAR: "{{job.parameters.POPULATION_YEAR}}"
-              FORCE_RECOMPUTE: "{{job.parameters.FORCE_RECOMPUTE}}"
-              INCLUDE_ADM_LEVEL0: "{{job.parameters.INCLUDE_ADM_LEVEL0}}"
+              <<: *pipeline_params
               ENABLE_VISUALIZATION: "true"
               PIPELINE_START_ISO: "{{job.start_time.iso_datetime}}"
 
