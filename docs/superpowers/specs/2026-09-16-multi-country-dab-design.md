@@ -1,26 +1,31 @@
 # Multi-Country DAB Packaging — Design
 
 Date: 2026-09-16
-Status: In progress — test framework slice implemented; remaining slices proposed.
+Status: Code complete on branch `multi-country-dab`; dev verification pending.
 
 ## Implementation status
 
-Built first (so later refactors have a safety net):
+All code slices implemented and committed on branch `multi-country-dab`; local
+suite green (73 passing, 2 databricks-marked deselected off-cluster); both bundle
+targets `databricks bundle validate` OK.
 
-- **Done — test framework & CI** (commit `c155fe2`): extracted transform ops into
-  `shared/transform_ops.py`, replaced the library smoke-tests with real tests,
-  added the cluster-aware `spark` fixture, UC-write guard, `databricks` marker +
-  off-cluster auto-skip, `.github/workflows/tests.yml`, and the `tests/run_tests.py`
-  gate notebook. See sections 7 and Testing.
+- **Done — test framework & CI** (`c155fe2`): `shared/transform_ops.py`, real
+  tests, cluster-aware `spark` fixture, UC-write guard, `databricks` marker +
+  off-cluster auto-skip, CI workflow, `tests/run_tests.py` gate.
+- **Done — Task 4 WB URL** (`aada296`): `ddh_bytes` volume-or-URL fallback.
+- **Done — Task 1 country params** (`590de86`): ISO3→ISO2/name via pycountry.
+- **Done — Task 2 config consolidation** (`0153033`): FORCE_RECOMPUTE /
+  INCLUDE_ADM_LEVEL0 widgets, shared H3_RESOLUTION.
+- **Done — Task 3 LGU naming** (`df37d87`): `wb_boundaries_lgu_{iso3}`.
+- **Done — Task 5 VOLUME_DIR** (`298ca4d`): `UC_VOLUME` widget.
+- **Done — Task 6 cache #5/#6** (`11bd2ed`): `should_load_country_cache`.
+- **Done — Task 7 DAB** (`89498ee`): merged `pipeline` job + `batch` fan-out +
+  `prod` target; deleted `pipeline_runner.py`.
+- Created managed dev volume `prd_mega.pim.vpim`; `dev-wei` uses `pim` / `pim/vpim`.
 
-Pending:
-
-- Country/config parameterization (`shared/settings.py`) — section 1.
-- LGU naming standardization — section 2. WB URL fix — section 3.
-- DAB restructure incl. wiring the `run_tests` task — section 4.
-- Review-item polish (#5/#6) — section 5. `pycountry` dep — section 6.
-- Feature-specific tests (country/ISO derivation, new widgets, ISO3 LGU naming)
-  land TDD-style with their slices, not in the framework slice above.
+**Pending:** dev-pipeline verification on `dev-wei` (run one country into `pim`,
+confirm ISO3-named tables + WB fetch + no prod writes); then finalize/merge.
+Feature-specific tests were written TDD-style with each slice.
 
 ## Goal
 
