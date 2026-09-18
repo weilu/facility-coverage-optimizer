@@ -267,11 +267,15 @@ from shared.core import should_load_country_cache
 class TestShouldLoadCountryCache:
 
     def test_reuses_when_present_and_not_forcing(self):
-        assert should_load_country_cache(force=False, country_cache_exists=True) is True
+        assert should_load_country_cache(False, cache_exists=True, cache_refreshed_this_run=False) is True
 
-    def test_forcing_never_reuses(self):
-        # #6: a forced run must re-query, never read a possibly-stale country cache.
-        assert should_load_country_cache(force=True, country_cache_exists=True) is False
+    def test_forcing_rejects_stale_cache(self):
+        # A province-only forced run must re-query, not read a stale country cache.
+        assert should_load_country_cache(True, cache_exists=True, cache_refreshed_this_run=False) is False
+
+    def test_forcing_reuses_cache_refreshed_this_run(self):
+        # Forced run: provinces reuse the country extract the country pass just rebuilt.
+        assert should_load_country_cache(True, cache_exists=True, cache_refreshed_this_run=True) is True
 
     def test_no_reuse_when_absent(self):
-        assert should_load_country_cache(force=False, country_cache_exists=False) is False
+        assert should_load_country_cache(False, cache_exists=False, cache_refreshed_this_run=False) is False

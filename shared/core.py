@@ -86,14 +86,16 @@ def _sanitize_adm_name(name: str) -> str:
     s = re.sub(r"_+", "_", s)
     return s.strip("_")
 
-def should_load_country_cache(force: bool, country_cache_exists: bool) -> bool:
+def should_load_country_cache(force: bool, cache_exists: bool, cache_refreshed_this_run: bool) -> bool:
     """Whether to reuse the cached country-level OSM extract instead of re-querying.
 
-    A forced run must never reuse a possibly-stale cache (#6); otherwise reuse it
-    when it exists. Applies to both country and province passes — the country pass
-    builds the cache in the same run, so there is no separate branch (#5).
+    Reuse when the cache exists and either it was refreshed earlier in this run (so
+    it is fresh even under force) or we are not forcing. This lets a forced run
+    rebuild the country extract once and have every province reuse that fresh copy
+    rather than re-query the whole country per province, while a province-only
+    forced run still re-queries instead of reading stale data.
     """
-    return (not force) and country_cache_exists
+    return cache_exists and (cache_refreshed_this_run or not force)
 
 
 def get_extract_table_names(

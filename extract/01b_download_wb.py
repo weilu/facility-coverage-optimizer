@@ -54,8 +54,12 @@ def download_wb_geojson(url: str, cache_path: str) -> gpd.GeoDataFrame:
         return gpd.read_file(cache_path)
 
     print(f"Fetching World Bank boundaries (DDH volume or URL): {url}")
-    with open(cache_path, 'wb') as f:
+    # Write to a per-process temp path then atomically rename, so concurrent batch
+    # runs sharing this cache never read a partially-written file.
+    tmp_path = f"{cache_path}.{os.getpid()}.tmp"
+    with open(tmp_path, 'wb') as f:
         f.write(ddh_bytes(url))
+    os.replace(tmp_path, cache_path)
 
     print(f"Cached to: {cache_path}")
     return gpd.read_file(cache_path)

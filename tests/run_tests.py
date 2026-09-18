@@ -5,6 +5,7 @@
 
 # COMMAND ----------
 
+import glob
 import sys
 import subprocess
 
@@ -12,17 +13,18 @@ dist_dir = (dbutils.widgets.get("dist_dir") or "").strip()
 if not dist_dir:
     raise RuntimeError("'dist_dir' is not set — expected from the DAB job's base_parameters.")
 
-# Install the project wheel (pulls its own deps: geopandas/shapely/pycountry/…) plus pytest.
+# Install the exact wheel by path so a public index can't substitute the project
+# package for a higher-version one on this credentialed cluster.
+wheels = sorted(glob.glob(f"{dist_dir}/health_facility_location_optimizer-*.whl"))
+if not wheels:
+    raise RuntimeError(f"No project wheel found in {dist_dir}")
+wheel = wheels[-1]
+
+# First install pulls deps (geopandas/pycountry/…) + pytest; the second forces the
+# project itself fresh (static version, so a plain install would keep a cached copy).
+subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", wheel, "pytest"], check=True)
 subprocess.run(
-    [sys.executable, "-m", "pip", "install", "--quiet", "--find-links", dist_dir,
-     "health-facility-location-optimizer", "pytest"],
-    check=True,
-)
-# Force the package itself to the just-published wheel (version is static, so a
-# plain install would keep a previously-installed copy); deps are already satisfied.
-subprocess.run(
-    [sys.executable, "-m", "pip", "install", "--quiet", "--find-links", dist_dir,
-     "--force-reinstall", "--no-deps", "health-facility-location-optimizer"],
+    [sys.executable, "-m", "pip", "install", "--quiet", "--force-reinstall", "--no-deps", wheel],
     check=True,
 )
 
