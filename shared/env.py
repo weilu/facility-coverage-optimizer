@@ -87,13 +87,8 @@ def get_environment() -> Environment:
 
 
 def is_databricks() -> bool:
-    """Check if running in Databricks."""
+    """Check if running in Databricks (else assume local)."""
     return get_environment() == Environment.DATABRICKS
-
-
-def is_local() -> bool:
-    """Check if running locally."""
-    return get_environment() == Environment.LOCAL
 
 
 # -----------------------------------------------------------------------------

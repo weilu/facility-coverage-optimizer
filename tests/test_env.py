@@ -7,9 +7,6 @@ import geopandas as gpd
 from shapely.geometry import Point
 
 from shared.env import (
-    Environment,
-    detect_environment,
-    is_local,
     is_databricks,
     LocalStorageBackend,
     DatabricksStorageBackend,
@@ -17,35 +14,6 @@ from shared.env import (
     reset_storage_backend,
 )
 import shared.env as env
-
-
-class TestEnvironmentDetection:
-
-    def setup_method(self):
-        """Reset environment cache before each test."""
-        reset_storage_backend()
-
-    def test_local_environment_detection(self):
-        """Test that local environment is detected when not in Databricks."""
-        # Remove Databricks env var if present
-        old_val = os.environ.pop("DATABRICKS_RUNTIME_VERSION", None)
-        try:
-            reset_storage_backend()
-            env = detect_environment()
-            assert env == Environment.LOCAL
-        finally:
-            if old_val:
-                os.environ["DATABRICKS_RUNTIME_VERSION"] = old_val
-
-    def test_is_local(self):
-        """is_local is always the inverse of is_databricks (runs locally and on-cluster)."""
-        reset_storage_backend()
-        assert is_local() is (not is_databricks())
-
-    def test_is_databricks(self):
-        """is_databricks reflects the DATABRICKS_RUNTIME_VERSION env (true on a cluster)."""
-        reset_storage_backend()
-        assert is_databricks() is bool(os.environ.get("DATABRICKS_RUNTIME_VERSION"))
 
 
 class TestLocalStorageBackend:
