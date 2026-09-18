@@ -130,7 +130,6 @@ ENABLE_VISUALIZATION = _get_enable_visualization()
 
 
 def get_transform_table_names(
-    country: str,
     iso3: str,
     adm_level1: str | None,
     population_year: int,
@@ -138,7 +137,7 @@ def get_transform_table_names(
 ):
     """Generate table names for transform step based on configuration."""
     return _get_transform_table_names(
-        UC_CATALOG, UC_SCHEMA, country, iso3, adm_level1, population_year, distance_meters
+        UC_CATALOG, UC_SCHEMA, iso3, adm_level1, population_year, distance_meters
     )
 
 

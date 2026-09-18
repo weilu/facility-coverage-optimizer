@@ -307,7 +307,7 @@ print(f"Will process {len(regions_to_process)} region(s): {regions_to_process}")
 # COMMAND ----------
 
 # EXECUTE TASK: Extract facilities per region
-country_raw_table = get_table_names(COUNTRY, ISO_3, None, POPULATION_YEAR)["facilities"]
+country_raw_table = get_table_names(ISO_3, None, POPULATION_YEAR)["facilities"]
 
 extraction_results = []
 
@@ -316,7 +316,7 @@ for adm_level1 in regions_to_process:
     print(f"PROCESSING: {adm_level1 if adm_level1 else 'ENTIRE COUNTRY'}")
     print("=" * 60)
 
-    tables = get_table_names(COUNTRY, ISO_3, adm_level1, POPULATION_YEAR)
+    tables = get_table_names(ISO_3, adm_level1, POPULATION_YEAR)
     boundaries_table = tables["boundaries"]
     facilities_table = tables["facilities"]
 

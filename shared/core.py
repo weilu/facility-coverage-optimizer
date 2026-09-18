@@ -99,7 +99,6 @@ def should_load_country_cache(force: bool, country_cache_exists: bool) -> bool:
 def get_extract_table_names(
     catalog: str,
     schema: str,
-    country: str,
     iso3: str,
     adm_level1: str | None,
     population_year: int,
@@ -110,7 +109,6 @@ def get_extract_table_names(
     Args:
         catalog: UC catalog name
         schema: UC schema name
-        country: Country name (retained for signature compatibility; table names use iso3)
         iso3: ISO 3-letter country code
         adm_level1: Optional admin level 1 region name
         population_year: Population data year
@@ -138,7 +136,6 @@ def get_extract_table_names(
 def get_transform_table_names(
     catalog: str,
     schema: str,
-    country: str,
     iso3: str,
     adm_level1: str | None,
     population_year: int,
@@ -150,7 +147,6 @@ def get_transform_table_names(
     Args:
         catalog: UC catalog name
         schema: UC schema name
-        country: Country name (retained for signature compatibility; table names use iso3)
         iso3: ISO 3-letter country code
         adm_level1: Optional admin level 1 region name
         population_year: Population data year

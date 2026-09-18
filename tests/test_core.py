@@ -75,21 +75,21 @@ class TestGetExtractTableNames:
     """Tests for get_extract_table_names function."""
 
     def test_country_level(self):
-        result = get_extract_table_names("prd", "sgp", "zambia", "ZMB", None, 2025)
+        result = get_extract_table_names("prd", "sgp", "ZMB", None, 2025)
         assert result["boundaries"] == "prd.sgp.wb_boundaries_zmb"
         assert result["population"] == "prd.sgp.population_zmb_2025"
         assert result["facilities"] == "prd.sgp.health_facilities_zmb_osm"
         assert result["lgu"] == "prd.sgp.wb_boundaries_lgu_zmb"
 
     def test_province_level(self):
-        result = get_extract_table_names("prd", "sgp", "zambia", "ZMB", "Northern", 2025)
+        result = get_extract_table_names("prd", "sgp", "ZMB", "Northern", 2025)
         assert result["boundaries"] == "prd.sgp.wb_boundaries_zmb_northern_province"
         assert result["population"] == "prd.sgp.population_zmb_2025_northern_province"
         assert result["facilities"] == "prd.sgp.health_facilities_zmb_osm_northern_province"
         assert result["lgu"] == "prd.sgp.wb_boundaries_lgu_zmb_northern_province"
 
     def test_hyphenated_province(self):
-        result = get_extract_table_names("prd", "sgp", "zambia", "ZMB", "North-Western", 2025)
+        result = get_extract_table_names("prd", "sgp", "ZMB", "North-Western", 2025)
         assert "_north_western_province" in result["boundaries"]
 
 
@@ -97,18 +97,18 @@ class TestGetTransformTableNames:
     """Tests for get_transform_table_names function."""
 
     def test_province_with_distance(self):
-        result = get_transform_table_names("prd", "sgp", "zambia", "ZMB", "Northern", 2025, 5000)
+        result = get_transform_table_names("prd", "sgp", "ZMB", "Northern", 2025, 5000)
         assert result["population_aoi"] == "prd.sgp.population_aoi_zmb_2025_northern_province_5km"
         assert result["facilities_h3"] == "prd.sgp.facilities_h3_zmb_northern_province_5km"
         assert result["potential_coverage"] == "prd.sgp.potential_coverage_zmb_northern_province_5km"
 
     def test_country_level_with_distance(self):
-        result = get_transform_table_names("prd", "sgp", "zambia", "ZMB", None, 2025, 10000)
+        result = get_transform_table_names("prd", "sgp", "ZMB", None, 2025, 10000)
         assert result["population_aoi"] == "prd.sgp.population_aoi_zmb_2025_10km"
         assert result["lgu_accessibility"] == "prd.sgp.lgu_accessibility_results_zmb_10km"
 
     def test_all_keys_present(self):
-        result = get_transform_table_names("prd", "sgp", "zambia", "ZMB", "Northern", 2025, 5000)
+        result = get_transform_table_names("prd", "sgp", "ZMB", "Northern", 2025, 5000)
         expected_keys = [
             "boundaries", "facilities", "population", "population_aoi",
             "facilities_h3", "facilities_coverage", "potential_locations",

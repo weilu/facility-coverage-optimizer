@@ -80,10 +80,10 @@ RASTER_PATH = f"{VOLUME_DIR}/worldpop_{ISO_3.lower()}_{POPULATION_YEAR}.tif"
 # TABLE NAME GENERATOR (partial application of shared.core function)
 
 
-def get_table_names(country: str, iso3: str, adm_level1: str | None, population_year: int):
+def get_table_names(iso3: str, adm_level1: str | None, population_year: int):
     """Generate table names based on configuration."""
     return get_extract_table_names(
-        UC_CATALOG, UC_SCHEMA, country, iso3, adm_level1, population_year
+        UC_CATALOG, UC_SCHEMA, iso3, adm_level1, population_year
     )
 
 

@@ -44,7 +44,6 @@ import os
 if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
     from shared.env import get_spark, table_exists, uc_table_to_gdf
     from transform.config import (
-        COUNTRY,
         COUNTRY_ISO3,
         POPULATION_YEAR,
         ENABLE_VISUALIZATION,
@@ -230,7 +229,7 @@ def _select_viz_combinations(combinations, job_start):
     fresh = []
     for adm, dist in combinations:
         tables = get_transform_table_names(
-            COUNTRY, COUNTRY_ISO3, adm, POPULATION_YEAR, dist
+            COUNTRY_ISO3, adm, POPULATION_YEAR, dist
         )
         if not table_exists(tables["lgu_accessibility"]):
             continue
@@ -246,7 +245,7 @@ def _select_viz_combinations(combinations, job_start):
     for adm, dist in combinations:
         if adm is None:
             tables = get_transform_table_names(
-                COUNTRY, COUNTRY_ISO3, adm, POPULATION_YEAR, dist
+                COUNTRY_ISO3, adm, POPULATION_YEAR, dist
             )
             if table_exists(tables["lgu_accessibility"]):
                 national.append((adm, dist))
@@ -257,7 +256,7 @@ def _select_viz_combinations(combinations, job_start):
     # Last resort: first combination that exists
     for adm, dist in combinations:
         tables = get_transform_table_names(
-            COUNTRY, COUNTRY_ISO3, adm, POPULATION_YEAR, dist
+            COUNTRY_ISO3, adm, POPULATION_YEAR, dist
         )
         if table_exists(tables["lgu_accessibility"]):
             return [(adm, dist)]
@@ -280,7 +279,7 @@ for adm_level1, distance_meters in transform_combinations:
     distance_name = f"{int(distance_meters / 1000)}km"
 
     tables = get_transform_table_names(
-        COUNTRY, COUNTRY_ISO3, adm_level1, POPULATION_YEAR, distance_meters
+        COUNTRY_ISO3, adm_level1, POPULATION_YEAR, distance_meters
     )
 
     # Check if results exist
@@ -355,7 +354,7 @@ for adm_level1, distance_meters in transform_combinations:
     distance_name = f"{int(distance_meters / 1000)}km"
 
     tables = get_transform_table_names(
-        COUNTRY, COUNTRY_ISO3, adm_level1, POPULATION_YEAR, distance_meters
+        COUNTRY_ISO3, adm_level1, POPULATION_YEAR, distance_meters
     )
 
     # Check if required tables exist
