@@ -49,7 +49,6 @@ if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
     from shared.env import get_spark, table_exists
     from shared.core import sanitize_col_name, solve_mclp_greedy
     from transform.config import (
-        COUNTRY,
         COUNTRY_ISO3,
         POPULATION_YEAR,
         FORCE_RECOMPUTE,
@@ -418,9 +417,13 @@ for adm_level1, distance_meters in transform_combinations:
     if not skip_dashboard:
         print("\nSaving dashboard metadata...")
         boundaries_sdf = spark.table(tables["boundaries"])
-        boundary_row = boundaries_sdf.select("geometry_wkt").limit(1).collect()
-        
+        boundary_row = boundaries_sdf.select("geometry_wkt", "NAM_0").limit(1).collect()
+
         boundary_aoi = boundary_row[0]["geometry_wkt"]
+        # Official WB boundary name (NAM_0) for base_dashboard_data.country — this is
+        # what the dashboard filters on. Sourced from the boundary data itself so it
+        # always matches; pycountry names diverge (e.g. "Yemen" vs "Republic of Yemen").
+        country_name = boundary_row[0]["NAM_0"]
         
         # Parse WKT string → Shapely geometry, then get centroid
         geometry = shapely_wkt.loads(boundary_aoi)
@@ -442,7 +445,7 @@ for adm_level1, distance_meters in transform_combinations:
         save_dashboard_metadata(
             spark=spark,
             table_name=BASE_DASHBOARD_TABLE,
-            country=COUNTRY,
+            country=country_name,
             province=adm_level1,
             year=POPULATION_YEAR,
             central_lat=centroid.y,

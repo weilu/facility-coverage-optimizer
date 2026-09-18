@@ -28,7 +28,6 @@ if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
     from shared.settings import (
         UC_CATALOG,
         UC_SCHEMA,
-        COUNTRY,
         ISO_3 as COUNTRY_ISO3,
         POPULATION_YEAR,
         FORCE_RECOMPUTE,

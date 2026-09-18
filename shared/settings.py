@@ -26,7 +26,13 @@ def resolve_iso2(iso3: str) -> str:
 
 
 def resolve_country_name(iso3: str) -> str:
-    """Human-readable country name (display/logging only; table names use ISO3)."""
+    """Human-readable country name for display/logging only.
+
+    Table names use ISO3, and the country value written to base_dashboard_data
+    (which the dashboard filters on) is the official WB boundary name (NAM_0),
+    read from the boundary data in transform/03_optimize — not this value, since
+    pycountry names diverge from WB's (e.g. "Yemen" vs "Republic of Yemen").
+    """
     country = pycountry.countries.get(alpha_3=iso3.upper())
     if country is None:
         raise ValueError(f"Unknown ISO3 country code: {iso3!r}")
