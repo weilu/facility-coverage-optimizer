@@ -10,11 +10,15 @@ UC_SCHEMA_DEFAULT = "sgpbpi163"
 
 
 def _get_widget(name: str, default: str) -> str:
-    """Read a Databricks widget, falling back to a default off-cluster."""
-    try:
-        return dbutils.widgets.get(name)
-    except Exception:
+    """Read a Databricks widget, falling back to a default off-cluster.
+
+    dbutils is injected into the notebook namespace on Databricks (and reaches
+    this module via %run). When imported off-cluster (local/CI) or from the wheel,
+    it is absent — hence the globals() check rather than a bare reference.
+    """
+    if "dbutils" not in globals():
         return default
+    return dbutils.widgets.get(name)
 
 
 def resolve_iso2(iso3: str) -> str:
@@ -44,10 +48,9 @@ def _parse_bool(raw: str) -> bool:
 
 
 def _get_bool_widget(name: str, default: bool) -> bool:
-    try:
-        return _parse_bool(dbutils.widgets.get(name))
-    except Exception:
+    if "dbutils" not in globals():  # not on Databricks (local/CI or imported wheel)
         return default
+    return _parse_bool(dbutils.widgets.get(name))
 
 
 UC_SCHEMA = _get_widget("UC_SCHEMA", UC_SCHEMA_DEFAULT)

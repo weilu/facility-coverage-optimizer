@@ -114,11 +114,10 @@ VIZ_SAMPLE_SIZE = 5_000  # Max points per category for Folium maps
 
 def _get_enable_visualization() -> bool:
     """Get ENABLE_VISUALIZATION from dbutils widget or use default."""
-    try:
-        val = dbutils.widgets.get("ENABLE_VISUALIZATION")
-        return val.lower() in ("true", "1", "yes")
-    except:
+    if "dbutils" not in globals():  # not on Databricks (local/CI or imported wheel)
         return ENABLE_VISUALIZATION_DEFAULT
+    val = dbutils.widgets.get("ENABLE_VISUALIZATION")
+    return val.lower() in ("true", "1", "yes")
 
 
 ENABLE_VISUALIZATION = _get_enable_visualization()
