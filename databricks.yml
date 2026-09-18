@@ -26,6 +26,7 @@ targets:
     mode: production
     workspace:
       profile: adb-6102124407836814
+      root_path: /Workspace/Users/wlu4@worldbank.org/.bundle/${bundle.name}/${bundle.target}
     variables:
       uc_schema: sgpbpi163
       uc_volume: sgpbpi163/vgpbpi163

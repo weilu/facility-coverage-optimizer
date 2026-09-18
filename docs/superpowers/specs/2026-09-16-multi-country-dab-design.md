@@ -31,9 +31,22 @@ bundling `tests/`, publish to a UC Volume (`/Volumes/prd_mega/pim/vpim/dist/`),
 on-cluster incl. the H3 tests. Operational step: the wheel must be rebuilt+
 published on code change (not yet wired into CI). See [[dev-cluster-wsfs-limitation]].
 
-**Pending:** wire wheel build+publish into CI/deploy (+ publish to the prod
-volume); dev full-pipeline run for one country into `pim` (Checkpoint C);
-then finalize/merge. Feature-specific tests were written TDD-style with each slice.
+**CI wiring — DONE:** `scripts/publish_wheel.sh <target>` builds the wheel and
+publishes it to the target's UC Volume `dist/`; `.github/workflows/publish-wheel.yml`
+runs it on merge to main / on demand (needs `DATABRICKS_HOST` + OAuth secrets).
+
+**Checkpoint C — VERIFIED (2026-09-18):** full single-country pipeline run for LAO
+into `pim` on `dev-wei`. 9/10 tasks succeeded — `run_tests` gate, all 5 extract,
+`prepare`/`coverage`/`optimize`. Produced 497 ISO3-named LAO tables in `pim`
+(incl. `wb_boundaries_lgu_lao` — the Task 3 rename — and `base_dashboard_data_lao`),
+none in prod `sgpbpi163`. Confirms country derivation, WB `ddh_bytes` fetch, ISO3
+LGU naming, `UC_VOLUME` isolation, widgets, and the on-cluster gate together.
+`visualize` (optional last stage) failed on a transient cluster driver restart —
+infra, not code.
+
+**Remaining before merge:** publish the wheel to the prod volume + add CI secrets
+(prod automation); optionally repair-run `visualize`. Feature-specific tests were
+written TDD-style with each slice.
 
 ## Goal
 
