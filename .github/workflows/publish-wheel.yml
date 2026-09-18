@@ -1,4 +1,4 @@
-name: Publish test wheel
+name: Publish wheel
 
 # Builds the project wheel (with tests/ bundled) and publishes it to the target's
 # UC Volume, where the on-cluster test gate pip-installs it. Runs on merge to main
@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       target:
-        description: "Bundle target (dev-wei or prod)"
+        description: "Bundle target from databricks.yml to publish the wheel for"
         default: prod
 
 permissions:
