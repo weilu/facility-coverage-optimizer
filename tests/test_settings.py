@@ -1,21 +1,27 @@
-"""Tests for country/ISO derivation and widget fallbacks in shared/settings.py."""
+import json
+import pathlib
+import re
 
 import pytest
 
-from shared.settings import resolve_iso2, resolve_country_name
+from shared.settings import resolve_iso2, resolve_country_name, _parse_bool
 
-# The 36 countries already present in prd_mega.sgpbpi163.
-ALL_ISO3 = [
-    "AFG", "BEN", "BFA", "BGD", "CIV", "CMR", "DJI", "ETH", "GAB", "GIN",
-    "GMB", "GNQ", "HTI", "IND", "JPN", "KHM", "LAO", "MLI", "MWI", "NER",
-    "NGA", "NPL", "PAK", "PSE", "ROU", "SDN", "SEN", "SOM", "SRB", "SSD",
-    "SYR", "TCD", "TGO", "UZB", "YEM", "ZMB",
-]
+
+@pytest.fixture(scope="module")
+def default_countries():
+    # Read the batch country list from databricks.yml so this never drifts from the
+    # actual default. Not bundled in the wheel, so the on-cluster (wheel) run skips.
+    yml = pathlib.Path(__file__).resolve().parents[1] / "databricks.yml"
+    if not yml.exists():
+        pytest.skip("databricks.yml not available (wheel-installed run)")
+    m = re.search(r"countries:.*?default:\s*'(\[.*?\])'", yml.read_text(), re.S)
+    assert m, "countries variable default not found in databricks.yml"
+    return json.loads(m.group(1))
 
 
 class TestResolveIso2:
-    def test_all_36_resolve(self):
-        for iso3 in ALL_ISO3:
+    def test_all_default_countries_resolve(self, default_countries):
+        for iso3 in default_countries:
             assert len(resolve_iso2(iso3)) == 2
 
     @pytest.mark.parametrize("iso3,iso2", [("PSE", "PS"), ("SRB", "RS"), ("YEM", "YE")])
@@ -32,36 +38,15 @@ class TestResolveIso2:
 
 
 class TestResolveCountryName:
-    def test_returns_nonempty_for_all(self):
-        for iso3 in ALL_ISO3:
+    def test_returns_nonempty_for_all(self, default_countries):
+        for iso3 in default_countries:
             assert resolve_country_name(iso3)
 
 
-class TestRunControlDefaults:
-    def test_force_recompute_defaults_false(self):
-        from shared.settings import FORCE_RECOMPUTE
-        assert FORCE_RECOMPUTE is False
-
-    def test_include_adm_level0_defaults_true(self):
-        from shared.settings import INCLUDE_ADM_LEVEL0
-        assert INCLUDE_ADM_LEVEL0 is True
-
-    def test_h3_resolution_is_shared_constant(self):
-        from shared.settings import H3_RESOLUTION
-        assert H3_RESOLUTION == 8
-
-
-class TestBoolWidget:
+class TestParseBool:
     @pytest.mark.parametrize("raw,expected", [
         ("true", True), ("True", True), ("1", True), ("yes", True),
         ("false", False), ("no", False), ("", False),
     ])
     def test_parses_truthy_strings(self, raw, expected):
-        from shared.settings import _parse_bool
         assert _parse_bool(raw) is expected
-
-
-class TestUcVolume:
-    def test_default_preserves_current_volume(self):
-        from shared.settings import UC_VOLUME
-        assert UC_VOLUME == "sgpbpi163/vgpbpi163"

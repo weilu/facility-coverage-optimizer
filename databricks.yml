@@ -32,10 +32,8 @@ targets:
       uc_volume: sgpbpi163/vgpbpi163
       cluster_id: 0212-012600-43y69ksy  # ITSDA_DAP_TEAM_gpbpinfrastructureanalysispimpam
 
-# Pipeline notebooks are deployed via `databricks bundle deploy` and share code via
-# %run (control plane — no driver-FS dependency). The test gate instead installs the
-# project wheel from a UC Volume and runs `pytest --pyargs tests`, because this
-# cluster does not mount /Workspace files to the driver (see tests/run_tests.py).
+# Test gate installs the project wheel from a UC Volume and runs pytest --pyargs,
+# because this cluster doesn't mount /Workspace to the driver (see tests/run_tests.py).
 x-pipeline-params: &pipeline_params
   COUNTRY_ISO3: "{{job.parameters.COUNTRY_ISO3}}"
   UC_SCHEMA: "{{job.parameters.UC_SCHEMA}}"

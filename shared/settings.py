@@ -10,12 +10,8 @@ UC_SCHEMA_DEFAULT = "sgpbpi163"
 
 
 def _get_widget(name: str, default: str) -> str:
-    """Read a Databricks widget, falling back to a default off-cluster.
-
-    dbutils is injected into the notebook namespace on Databricks (and reaches
-    this module via %run). When imported off-cluster (local/CI) or from the wheel,
-    it is absent — hence the globals() check rather than a bare reference.
-    """
+    # dbutils is absent off-cluster (local/CI/wheel) — check globals() rather than
+    # bare-reference it, so importing this module there falls back to the default.
     if "dbutils" not in globals():
         return default
     return dbutils.widgets.get(name)
@@ -30,13 +26,8 @@ def resolve_iso2(iso3: str) -> str:
 
 
 def resolve_country_name(iso3: str) -> str:
-    """Human-readable country name for display/logging only.
-
-    Table names use ISO3, and the country value written to base_dashboard_data
-    (which the dashboard filters on) is the official WB boundary name (NAM_0),
-    read from the boundary data in transform/03_optimize — not this value, since
-    pycountry names diverge from WB's (e.g. "Yemen" vs "Republic of Yemen").
-    """
+    # Display/logging only. base_dashboard_data.country uses the WB NAM_0 (set in
+    # 03_optimize) since pycountry diverges (e.g. "Yemen" vs "Republic of Yemen").
     country = pycountry.countries.get(alpha_3=iso3.upper())
     if country is None:
         raise ValueError(f"Unknown ISO3 country code: {iso3!r}")
@@ -55,9 +46,8 @@ def _get_bool_widget(name: str, default: bool) -> bool:
 
 UC_SCHEMA = _get_widget("UC_SCHEMA", UC_SCHEMA_DEFAULT)
 
-# Volume path segment "schema/volume" for file caches (worldpop rasters, WB
-# geojson, facilities input). Not derivable from UC_SCHEMA (volume name differs),
-# so it is its own widget; default preserves existing cached data.
+# "schema/volume" for file caches; its own widget since the volume name isn't
+# derivable from UC_SCHEMA.
 UC_VOLUME = _get_widget("UC_VOLUME", "sgpbpi163/vgpbpi163")
 
 # Country settings — derived from a single COUNTRY_ISO3 widget (default Laos)

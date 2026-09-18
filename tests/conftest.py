@@ -1,12 +1,6 @@
-"""Shared pytest fixtures and safety guards.
-
-Two responsibilities:
-  1. A cluster-aware ``spark`` fixture usable both locally and on a Databricks
-     cluster (where the H3-dependent tests must run against the real session).
-  2. An autouse guard that blocks any write to Unity Catalog so the suite can
-     never touch a dev (``pim``) or prod (``sgpbpi163``) destination — critical
-     because the pipeline test gate runs on a cluster with real credentials.
-"""
+"""Cluster-aware ``spark`` fixture, and an autouse guard blocking any Unity Catalog
+write so the suite can never touch a real (pim/sgpbpi163) destination — the gate
+runs on a cluster with real credentials."""
 
 from unittest import mock
 

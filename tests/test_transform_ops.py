@@ -1,20 +1,14 @@
-"""Tests for shared/transform_ops.py.
-
-The grid helper is pure (numpy/geopandas) and runs anywhere. The H3 helpers
-depend on Databricks-native H3 SQL (h3_longlatash3, h3_kring) that open-source
-PySpark lacks, so they are marked ``databricks`` and run only on a cluster
-(the pipeline test gate); CI deselects them with -m "not databricks".
-"""
-
 import pytest
-from shapely.geometry import Polygon
+from shapely.geometry import Point, Polygon
 
-from shared.transform_ops import generate_grid_in_polygon
+from shared.transform_ops import (
+    generate_grid_in_polygon,
+    add_facility_h3_index,
+    compute_coverage_h3_internal,
+)
 
 
 class TestGenerateGridInPolygon:
-    """Tests for generate_grid_in_polygon (pure)."""
-
     def _square(self):
         # ~0.2° square around (28, -15)
         return Polygon([(27.9, -15.1), (28.1, -15.1), (28.1, -14.9), (27.9, -14.9)])
@@ -27,7 +21,6 @@ class TestGenerateGridInPolygon:
         poly = self._square()
         result = generate_grid_in_polygon(0.05, poly)
         assert len(result) > 0
-        from shapely.geometry import Point
         assert all(poly.intersects(Point(lon, lat))
                    for lon, lat in zip(result["longitude"], result["latitude"]))
 
@@ -45,11 +38,7 @@ class TestGenerateGridInPolygon:
 
 @pytest.mark.databricks
 class TestAddFacilityH3Index:
-    """Requires Databricks H3 SQL (h3_longlatash3)."""
-
     def test_adds_non_null_h3_index(self, spark):
-        from shared.transform_ops import add_facility_h3_index
-
         sdf = spark.createDataFrame([("f1", 28.0, -15.0)], ["ID", "lon", "lat"])
         out = add_facility_h3_index(sdf, 8)
 
@@ -59,11 +48,7 @@ class TestAddFacilityH3Index:
 
 @pytest.mark.databricks
 class TestComputeCoverageH3Internal:
-    """Requires Databricks H3 SQL (h3_longlatash3, h3_kring)."""
-
     def test_only_nearby_population_is_covered(self, spark):
-        from shared.transform_ops import add_facility_h3_index, compute_coverage_h3_internal
-
         facilities = add_facility_h3_index(
             spark.createDataFrame([("fac_1", 28.0, -15.0)], ["ID", "lon", "lat"]),
             8,

@@ -1,4 +1,3 @@
-"""Tests for environment detection and storage backends in shared/env.py"""
 
 import os
 import tempfile
@@ -17,10 +16,10 @@ from shared.env import (
     get_storage_backend,
     reset_storage_backend,
 )
+import shared.env as env
 
 
 class TestEnvironmentDetection:
-    """Tests for environment detection."""
 
     def setup_method(self):
         """Reset environment cache before each test."""
@@ -50,7 +49,6 @@ class TestEnvironmentDetection:
 
 
 class TestLocalStorageBackend:
-    """Tests for LocalStorageBackend."""
 
     def setup_method(self):
         """Create a temporary directory for each test."""
@@ -141,7 +139,6 @@ class TestLocalStorageBackend:
 
 
 class TestStorageBackendFactory:
-    """Tests for get_storage_backend factory."""
 
     def setup_method(self):
         """Reset cached backend before each test."""
@@ -168,28 +165,24 @@ class TestStorageBackendFactory:
 
 
 class TestDdhHelpers:
-    """Tests for the DDH volume/URL download helpers."""
 
     def test_ddh_volume_path_maps_url(self):
-        from shared.env import ddh_volume_path
         url = (
             "https://datacatalogfiles.worldbank.org/ddh-published/0038272/DR0095369/"
             "World%20Bank%20Official%20Boundaries%20(GeoJSON)/"
             "World%20Bank%20Official%20Boundaries%20-%20Admin%200.geojson"
         )
-        assert ddh_volume_path(url) == (
+        assert env.ddh_volume_path(url) == (
             "/Volumes/prd_development_data/files/ddh/0038272/DR0095369/"
             "World Bank Official Boundaries (GeoJSON)/"
             "World Bank Official Boundaries - Admin 0.geojson"
         )
 
     def test_ddh_volume_path_rejects_non_ddh_url(self):
-        from shared.env import ddh_volume_path
         with pytest.raises(ValueError):
-            ddh_volume_path("https://example.com/foo/bar.geojson")
+            env.ddh_volume_path("https://example.com/foo/bar.geojson")
 
     def test_ddh_bytes_reads_volume_when_present(self, tmp_path, monkeypatch):
-        import shared.env as env
         f = tmp_path / "cached.bin"
         f.write_bytes(b"volume-copy")
         # Resolve the "volume path" to our temp file; ddh_bytes should read it

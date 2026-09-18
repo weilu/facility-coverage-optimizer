@@ -1,8 +1,6 @@
 # Databricks notebook source
-# Transform operations extracted from the transform notebooks so they can be
-# imported and unit/integration tested. Pure geometry helpers use numpy/pandas/
-# geopandas; the H3 helpers rely on Databricks-native H3 SQL (h3_longlatash3,
-# h3_kring) and are only meaningful on a cluster.
+# Transform ops extracted from the notebooks so they're importable/testable.
+# The H3 helpers need Databricks-native H3 SQL (h3_longlatash3, h3_kring).
 
 import numpy as np
 import pandas as pd
@@ -24,8 +22,7 @@ def generate_grid_in_polygon(spacing: float, geometry) -> pd.DataFrame:
 
 def add_facility_h3_index(facilities_sdf, h3_resolution: int):
     """Adds H3 index to facilities based on their location."""
-    # pyspark imported lazily so pure-Python consumers (and PySpark-free CI) can
-    # import this module without the pyspark package.
+    # pyspark imported lazily to keep this module importable in PySpark-free CI.
     from pyspark.sql import functions as F
 
     return facilities_sdf.withColumn(

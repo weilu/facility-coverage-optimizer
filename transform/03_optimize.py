@@ -420,9 +420,8 @@ for adm_level1, distance_meters in transform_combinations:
         boundary_row = boundaries_sdf.select("geometry_wkt", "NAM_0").limit(1).collect()
 
         boundary_aoi = boundary_row[0]["geometry_wkt"]
-        # Official WB boundary name (NAM_0) for base_dashboard_data.country — this is
-        # what the dashboard filters on. Sourced from the boundary data itself so it
-        # always matches; pycountry names diverge (e.g. "Yemen" vs "Republic of Yemen").
+        # base_dashboard_data.country (the dashboard's filter key) = WB boundary
+        # name (NAM_0); pycountry diverges (e.g. "Yemen" vs "Republic of Yemen").
         country_name = boundary_row[0]["NAM_0"]
         
         # Parse WKT string → Shapely geometry, then get centroid

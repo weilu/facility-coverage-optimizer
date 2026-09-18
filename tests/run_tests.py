@@ -1,10 +1,7 @@
 # Databricks notebook source
-# DAB test gate. The project wheel (with tests/ bundled — see pyproject) is
-# published to a UC Volume; we pip-install it and run `pytest --pyargs tests`, so
-# discovery and imports come from site-packages, NOT /Workspace. This cluster does
-# not mount workspace files to the driver FS, so filesystem-based collection fails
-# — the wheel + --pyargs approach (mirroring prospects_data_pipelines) sidesteps it.
-# `dist_dir` is supplied by the DAB per target (dev vs prod volume).
+# DAB test gate. This cluster doesn't mount /Workspace to the driver, so pytest
+# can't discover files there; instead install the wheel (tests bundled) from the UC
+# Volume (dist_dir, per target) and run `pytest --pyargs tests` from site-packages.
 
 # COMMAND ----------
 

@@ -1,4 +1,3 @@
-"""Unit tests for core functions in shared/core.py"""
 
 import pytest
 from shared.core import (
@@ -13,7 +12,6 @@ from shared.core import (
 
 
 class TestGetKRings:
-    """Tests for get_k_rings function."""
 
     def test_5km_resolution_8(self):
         # H3 resolution 8 edge length is 461m
@@ -46,7 +44,6 @@ class TestGetKRings:
 
 
 class TestSanitizeColName:
-    """Tests for sanitize_col_name function."""
 
     def test_simple_name(self):
         assert sanitize_col_name("Lusaka") == "lgu_Lusaka"
@@ -72,7 +69,6 @@ class TestSanitizeColName:
 
 
 class TestGetExtractTableNames:
-    """Tests for get_extract_table_names function."""
 
     def test_country_level(self):
         result = get_extract_table_names("prd", "sgp", "ZMB", None, 2025)
@@ -94,7 +90,6 @@ class TestGetExtractTableNames:
 
 
 class TestGetTransformTableNames:
-    """Tests for get_transform_table_names function."""
 
     def test_province_with_distance(self):
         result = get_transform_table_names("prd", "sgp", "ZMB", "Northern", 2025, 5000)
@@ -118,7 +113,6 @@ class TestGetTransformTableNames:
 
 
 class TestBuildTransformCombinations:
-    """Tests for build_transform_combinations function."""
 
     def test_single_province_single_distance(self):
         result = build_transform_combinations(["Northern"], [5000])
@@ -142,7 +136,6 @@ class TestBuildTransformCombinations:
 
 
 class TestSolveMclpGreedy:
-    """Tests for solve_mclp_greedy function."""
 
     def test_simple_case(self):
         # Simple scenario: 3 H3 cells, 2 potential facilities
@@ -241,7 +234,6 @@ class TestSolveMclpGreedy:
         assert set(first["covered_h3"]) == {"h3_cell_1", "h3_cell_2", "h3_cell_3"}
 
 class TestDeduplicateColumns:
-    """Tests for deduplicate_columns function."""
 
     def test_no_duplicates(self):
         cols = ["a", "b", "c"]
@@ -273,7 +265,6 @@ from shared.core import should_load_country_cache
 
 
 class TestShouldLoadCountryCache:
-    """Tests for the facility country-cache decision (#5/#6)."""
 
     def test_reuses_when_present_and_not_forcing(self):
         assert should_load_country_cache(force=False, country_cache_exists=True) is True

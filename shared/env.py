@@ -16,6 +16,8 @@ from typing import Protocol, runtime_checkable
 from pathlib import Path
 from urllib.parse import urlparse, unquote
 
+import requests
+
 import pandas as pd
 import geopandas as gpd
 from shapely.wkt import loads as wkt_loads
@@ -26,9 +28,8 @@ if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
 
 # COMMAND ----------
 
-# DDH (World Bank Data Catalog) download helpers — prefer the mounted DDH volume,
-# fall back to the URL. Mirrors the mega-indicators repo's ddh_bytes approach so a
-# published DDH file is read from the volume when available and downloaded otherwise.
+# DDH download helpers: prefer the mounted DDH volume, else download the URL
+# (mirrors mega-indicators' ddh_bytes).
 DDH_VOLUME_ROOT = "/Volumes/prd_development_data/files/ddh"
 
 
@@ -46,7 +47,6 @@ def ddh_bytes(url: str) -> bytes:
     if os.path.exists(vol):
         with open(vol, "rb") as f:
             return f.read()
-    import requests  # lazy: only needed on the URL-fallback path
     resp = requests.get(url, timeout=300)
     resp.raise_for_status()
     return resp.content
