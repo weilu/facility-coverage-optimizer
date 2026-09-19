@@ -1,4 +1,3 @@
-"""Tests for environment detection and storage backends in shared/env.py"""
 
 import os
 import tempfile
@@ -8,50 +7,16 @@ import geopandas as gpd
 from shapely.geometry import Point
 
 from shared.env import (
-    Environment,
-    detect_environment,
-    is_local,
     is_databricks,
     LocalStorageBackend,
+    DatabricksStorageBackend,
     get_storage_backend,
     reset_storage_backend,
 )
-
-
-class TestEnvironmentDetection:
-    """Tests for environment detection."""
-
-    def setup_method(self):
-        """Reset environment cache before each test."""
-        reset_storage_backend()
-
-    def test_local_environment_detection(self):
-        """Test that local environment is detected when not in Databricks."""
-        # Remove Databricks env var if present
-        old_val = os.environ.pop("DATABRICKS_RUNTIME_VERSION", None)
-        try:
-            reset_storage_backend()
-            env = detect_environment()
-            assert env == Environment.LOCAL
-        finally:
-            if old_val:
-                os.environ["DATABRICKS_RUNTIME_VERSION"] = old_val
-
-    def test_is_local(self):
-        """Test is_local helper."""
-        reset_storage_backend()
-        # In test environment, should always be local
-        assert is_local() is True
-
-    def test_is_databricks(self):
-        """Test is_databricks helper."""
-        reset_storage_backend()
-        # In test environment, should not be Databricks
-        assert is_databricks() is False
+import shared.env as env
 
 
 class TestLocalStorageBackend:
-    """Tests for LocalStorageBackend."""
 
     def setup_method(self):
         """Create a temporary directory for each test."""
@@ -142,16 +107,16 @@ class TestLocalStorageBackend:
 
 
 class TestStorageBackendFactory:
-    """Tests for get_storage_backend factory."""
 
     def setup_method(self):
         """Reset cached backend before each test."""
         reset_storage_backend()
 
-    def test_get_storage_backend_returns_local(self):
-        """Test that factory returns LocalStorageBackend in test environment."""
+    def test_get_storage_backend_matches_environment(self):
+        """Factory returns the backend for the current environment (local or Databricks)."""
         backend = get_storage_backend()
-        assert isinstance(backend, LocalStorageBackend)
+        expected = DatabricksStorageBackend if is_databricks() else LocalStorageBackend
+        assert isinstance(backend, expected)
 
     def test_get_storage_backend_caches(self):
         """Test that factory caches the backend."""
@@ -165,3 +130,32 @@ class TestStorageBackendFactory:
         reset_storage_backend()
         backend2 = get_storage_backend()
         assert backend1 is not backend2
+
+
+class TestDdhHelpers:
+
+    def test_ddh_volume_path_maps_url(self):
+        url = (
+            "https://datacatalogfiles.worldbank.org/ddh-published/0038272/DR0095369/"
+            "World%20Bank%20Official%20Boundaries%20(GeoJSON)/"
+            "World%20Bank%20Official%20Boundaries%20-%20Admin%200.geojson"
+        )
+        assert env.ddh_volume_path(url) == (
+            "/Volumes/prd_development_data/files/ddh/0038272/DR0095369/"
+            "World Bank Official Boundaries (GeoJSON)/"
+            "World Bank Official Boundaries - Admin 0.geojson"
+        )
+
+    def test_ddh_volume_path_rejects_non_ddh_url(self):
+        with pytest.raises(ValueError):
+            env.ddh_volume_path("https://example.com/foo/bar.geojson")
+
+    def test_ddh_download_to_copies_volume_when_present(self, tmp_path, monkeypatch):
+        src = tmp_path / "cached.bin"
+        src.write_bytes(b"volume-copy")
+        # Resolve the "volume path" to our temp file; ddh_download_to copies it
+        # without touching the network.
+        monkeypatch.setattr(env, "ddh_volume_path", lambda url: str(src))
+        dest = tmp_path / "out.bin"
+        env.ddh_download_to("https://datacatalogfiles.worldbank.org/ddh-published/x", str(dest))
+        assert dest.read_bytes() == b"volume-copy"

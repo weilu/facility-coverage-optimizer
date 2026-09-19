@@ -1,5 +1,5 @@
 # Databricks notebook source
-# MAGIC %pip install "numpy<2" geopandas shapely requests
+# MAGIC %pip install "numpy<2" geopandas shapely requests pycountry
 
 # COMMAND ----------
 
@@ -19,8 +19,6 @@ dbutils.library.restartPython()
 
 # COMMAND ----------
 
-import os
-import requests
 import geopandas as gpd
 
 # COMMAND ----------
@@ -36,7 +34,7 @@ import geopandas as gpd
 # Local imports (skipped in Databricks where %run loads modules)
 import os
 if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
-    from shared.env import ensure_dir, file_exists
+    from shared.env import ensure_dir, file_exists, ddh_download_to
     from extract.config import (
         VOLUME_DIR,
         WB_ADMIN0_URL,
@@ -47,18 +45,20 @@ if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
 # COMMAND ----------
 
 def download_wb_geojson(url: str, cache_path: str) -> gpd.GeoDataFrame:
-    """Download World Bank GeoJSON to cache and return as GeoDataFrame."""
+    """Fetch World Bank GeoJSON to cache and return as GeoDataFrame.
+
+    Prefers the mounted DDH volume copy, falling back to the URL (see ddh_download_to).
+    """
     if file_exists(cache_path):
         print(f"Loading cached WB boundaries: {cache_path}")
         return gpd.read_file(cache_path)
 
-    print(f"Downloading World Bank boundaries: {url}")
-    response = requests.get(url, stream=True, timeout=300)
-    response.raise_for_status()
-
-    with open(cache_path, 'wb') as f:
-        for chunk in response.iter_content(chunk_size=8192):
-            f.write(chunk)
+    print(f"Fetching World Bank boundaries (DDH volume or URL): {url}")
+    # Write to a per-process temp path then atomically rename, so concurrent batch
+    # runs sharing this cache never read a partially-written file.
+    tmp_path = f"{cache_path}.{os.getpid()}.tmp"
+    ddh_download_to(url, tmp_path)
+    os.replace(tmp_path, cache_path)
 
     print(f"Cached to: {cache_path}")
     return gpd.read_file(cache_path)

@@ -10,6 +10,11 @@ dependencies = [
     "shapely>=2.0.0",
     "numpy>=1.24.0",
     "requests>=2.31.0",
+    "pycountry>=22.0.0",
+    "rasterio>=1.3.0",
+    "scikit-learn>=1.3.0",
+    "folium>=0.15.0",
+    "plotly>=5.0.0",
 ]
 
 [project.optional-dependencies]
@@ -35,6 +40,9 @@ python_functions = ["test_*"]
 addopts = [
     "-v",
     "--tb=short",
+]
+markers = [
+    "databricks: test requires a real Databricks cluster (H3 SQL); deselect in CI with -m 'not databricks'",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",

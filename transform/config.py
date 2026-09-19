@@ -18,21 +18,21 @@
 
 # Local imports (skipped in Databricks where %run loads modules)
 import os
-import re
-import unicodedata
 if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
     from shared.core import (
         get_k_rings,
-        get_transform_table_names as _get_transform_table_names, _sanitize_adm_name,
+        get_transform_table_names as _get_transform_table_names,
         build_transform_combinations as _build_transform_combinations,
         H3_EDGE_LENGTH_M,
     )
     from shared.settings import (
         UC_CATALOG,
         UC_SCHEMA,
-        COUNTRY,
         ISO_3 as COUNTRY_ISO3,
         POPULATION_YEAR,
+        FORCE_RECOMPUTE,
+        INCLUDE_ADM_LEVEL0,
+        H3_RESOLUTION,
     )
     from shared.env import get_spark
 else:
@@ -83,11 +83,10 @@ else:
 # COMMAND ----------
 
 # CONFIGURATION
+# INCLUDE_ADM_LEVEL0, FORCE_RECOMPUTE, and H3_RESOLUTION are imported from
+# shared.settings (widgets / shared constant).
 
-# Include country-level (ADM0) processing
-INCLUDE_ADM_LEVEL0 = True
-
-# 
+#
 ADM_LEVEL1_LIST = []
 
 # List of distances to analyze (in meters)
@@ -102,10 +101,6 @@ GRID_SPACING = 0.03
 N_CLUSTERS = 100
 
 TARGET_NEW_FACILITIES = 50
-H3_RESOLUTION = 8  # Must match extraction resolution
-
-# Set to True to recompute cached results
-FORCE_RECOMPUTE = False
 
 # Target access rate for LGU equity analysis
 TARGET_ACCESS_RATE_PCT = 90.0
@@ -119,11 +114,10 @@ VIZ_SAMPLE_SIZE = 5_000  # Max points per category for Folium maps
 
 def _get_enable_visualization() -> bool:
     """Get ENABLE_VISUALIZATION from dbutils widget or use default."""
-    try:
-        val = dbutils.widgets.get("ENABLE_VISUALIZATION")
-        return val.lower() in ("true", "1", "yes")
-    except:
+    if "dbutils" not in globals():  # not on Databricks (local/CI or imported wheel)
         return ENABLE_VISUALIZATION_DEFAULT
+    val = dbutils.widgets.get("ENABLE_VISUALIZATION")
+    return val.lower() in ("true", "1", "yes")
 
 
 ENABLE_VISUALIZATION = _get_enable_visualization()
@@ -134,7 +128,6 @@ ENABLE_VISUALIZATION = _get_enable_visualization()
 
 
 def get_transform_table_names(
-    country: str,
     iso3: str,
     adm_level1: str | None,
     population_year: int,
@@ -142,14 +135,14 @@ def get_transform_table_names(
 ):
     """Generate table names for transform step based on configuration."""
     return _get_transform_table_names(
-        UC_CATALOG, UC_SCHEMA, country, iso3, adm_level1, population_year, distance_meters
+        UC_CATALOG, UC_SCHEMA, iso3, adm_level1, population_year, distance_meters
     )
 
 
 def _get_adm_level1_names_from_uc() -> list[str]:
     """Discover province names from LGU boundary table in UC."""
     spark = get_spark()
-    lgu_table = f"{UC_CATALOG}.{UC_SCHEMA}.wb_boundaries_lgu_{_sanitize_adm_name(COUNTRY)}"
+    lgu_table = f"{UC_CATALOG}.{UC_SCHEMA}.wb_boundaries_lgu_{COUNTRY_ISO3.lower()}"
     provinces_df = spark.sql(f"SELECT DISTINCT province FROM {lgu_table} ORDER BY province")
     provinces = [row.province for row in provinces_df.collect()]
     print(f"Discovered {len(provinces)} provinces from UC: {provinces}")

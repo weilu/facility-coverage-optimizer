@@ -25,9 +25,12 @@ See [docs/optimization_approach.md](docs/optimization_approach.md) for details o
 │   ├── 03_optimize.py
 │   └── 04_visualize.py
 └── tests/
-    ├── test_core.py        # Unit tests for pure functions
-    ├── test_env.py         # Tests for environment/storage
-    └── test_integration.py # PySpark integration tests
+    ├── conftest.py           # spark fixture + UC-write guard + databricks-marker skip
+    ├── test_core.py          # Unit tests for pure functions
+    ├── test_env.py           # Tests for environment/storage
+    ├── test_settings.py      # Country/ISO derivation + widget parsing
+    ├── test_transform_ops.py # Grid (unit) + H3 transforms (@pytest.mark.databricks)
+    └── run_tests.py          # On-cluster test gate (Databricks notebook)
 ```
 
 ## Setup
@@ -139,15 +142,22 @@ Expensive operations are cached to UC tables. Set `FORCE_RECOMPUTE = True` to re
 ## Running Tests
 
 ```bash
-# All tests
+# Unit tests (everything runnable off-cluster; databricks-marked H3 tests auto-skip)
 uv run pytest tests/ -v
 
-# Unit tests only (fast, no Spark)
-uv run pytest tests/test_core.py tests/test_env.py -v
-
-# Integration tests (requires PySpark)
-uv run pytest tests/test_integration.py -v
+# Explicitly exclude the Databricks-only H3 tests (what CI runs)
+uv run pytest -m "not databricks" -v
 
 # With coverage
 uv run pytest tests/ --cov=shared --cov=extract --cov=transform
+
+# The @pytest.mark.databricks tests (real H3 SQL) run on a cluster via the
+# tests/run_tests.py notebook, which is the pipeline job's first (gate) task.
+#
+# On-cluster gate: this cluster does not mount /Workspace files to the driver, so
+# the gate installs the project wheel (which bundles tests/) from a UC Volume and
+# runs `pytest --pyargs tests`. Publish/refresh the wheel whenever code changes:
+#   DATABRICKS_PROFILE=adb-6102124407836814 scripts/publish_wheel.sh dev-wei
+# CI (.github/workflows/publish-wheel.yml) does this on merge to main (needs
+# DATABRICKS_HOST + DATABRICKS_CLIENT_ID + DATABRICKS_CLIENT_SECRET repo secrets).
 ```

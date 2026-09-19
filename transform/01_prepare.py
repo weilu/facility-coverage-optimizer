@@ -1,5 +1,5 @@
 # Databricks notebook source
-# MAGIC %pip install "numpy<2" geopandas shapely scikit-learn
+# MAGIC %pip install "numpy<2" geopandas shapely scikit-learn pycountry
 
 # COMMAND ----------
 
@@ -24,7 +24,6 @@ dbutils.library.restartPython()
 
 # COMMAND ----------
 
-import numpy as np
 import pandas as pd
 import geopandas as gpd
 from shapely.geometry import Point
@@ -44,12 +43,16 @@ from pyspark.sql.functions import udf
 
 # COMMAND ----------
 
+# MAGIC %run "../shared/transform_ops"
+
+# COMMAND ----------
+
 # Local imports (skipped in Databricks where %run loads modules)
 import os
 if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
     from shared.env import get_spark, uc_table_to_gdf, table_exists
+    from shared.transform_ops import generate_grid_in_polygon, add_facility_h3_index
     from transform.config import (
-        COUNTRY,
         COUNTRY_ISO3,
         POPULATION_YEAR,
         FORCE_RECOMPUTE,
@@ -179,19 +182,6 @@ def facilities_gdf_to_spark(gdf: gpd.GeoDataFrame):
     return sdf.cache()
 
 
-def generate_grid_in_polygon(spacing: float, geometry) -> pd.DataFrame:
-    """Generates a regular point grid within the given geometry."""
-    minx, miny, maxx, maxy = geometry.bounds
-    x_coords = np.arange(np.floor(minx), np.ceil(maxx), spacing)
-    y_coords = np.arange(np.floor(miny), np.ceil(maxy), spacing)
-    mesh = np.meshgrid(x_coords, y_coords)
-    pdf = pd.DataFrame({"longitude": mesh[0].flatten(), "latitude": mesh[1].flatten()})
-    gdf = gpd.GeoDataFrame(pdf, geometry=gpd.points_from_xy(pdf.longitude, pdf.latitude), crs="EPSG:4326")
-    gdf = gpd.clip(gdf, geometry).reset_index(drop=True)
-    print(f"  Grid points: {len(gdf)}")
-    return gdf[["longitude", "latitude"]]
-
-
 def generate_kmeans(population_sdf, n_clusters: int, total_population: float) -> pd.DataFrame:
     """Runs KMeans on population coordinates to generate candidate locations."""
     sample_fraction = min(1.0, 500_000 / total_population)
@@ -221,14 +211,6 @@ def locations_pdf_to_spark(pdf: pd.DataFrame, id_suffix: str = "_potential"):
     )
     return sdf
 
-
-def add_facility_h3_index(facilities_sdf, h3_resolution: int):
-    """Adds H3 index to facilities based on their location."""
-    return facilities_sdf.withColumn(
-        "h3_index",
-        F.expr(f"h3_longlatash3(lon, lat, {h3_resolution})")
-    )
-
 # COMMAND ----------
 
 # EXECUTE TASK: Process each (province, distance) combination
@@ -249,7 +231,7 @@ for adm_level1, distance_meters in transform_combinations:
     print("=" * 60)
 
     tables = get_transform_table_names(
-        COUNTRY, COUNTRY_ISO3, adm_level1, POPULATION_YEAR, distance_meters
+        COUNTRY_ISO3, adm_level1, POPULATION_YEAR, distance_meters
     )
 
     # Load boundaries

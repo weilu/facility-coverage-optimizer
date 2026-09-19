@@ -11,9 +11,13 @@
 # the convenience wrapper functions for simpler access.
 
 import os
+import shutil
 from enum import Enum
 from typing import Protocol, runtime_checkable
 from pathlib import Path
+from urllib.parse import urlparse, unquote
+
+import requests
 
 import pandas as pd
 import geopandas as gpd
@@ -22,6 +26,36 @@ from shapely.wkt import loads as wkt_loads
 # Import from shared.core (local) or assume loaded via %run (Databricks)
 if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
     from shared.core import deduplicate_columns
+
+# COMMAND ----------
+
+# DDH download helpers: prefer the mounted DDH volume, else download the URL.
+DDH_VOLUME_ROOT = "/Volumes/prd_development_data/files/ddh"
+
+
+def ddh_volume_path(url: str) -> str:
+    """Volume path mirroring a DDH download URL
+    (.../ddh-published/{dataset}/{resource}/{filename})."""
+    parts = [unquote(p) for p in urlparse(url).path.split("/") if p]
+    i = parts.index("ddh-published")  # raises ValueError for non-DDH URLs
+    return DDH_VOLUME_ROOT + "/" + "/".join(parts[i + 1:])
+
+
+def ddh_download_to(url: str, dest: str) -> None:
+    """Stream a DDH file to dest: copy the mounted volume file if present, else the URL.
+
+    Streams rather than buffering the whole file in memory (some boundary files are
+    large enough to risk the driver).
+    """
+    vol = ddh_volume_path(url)
+    if os.path.exists(vol):
+        shutil.copyfile(vol, dest)
+        return
+    with requests.get(url, stream=True, timeout=300) as resp:
+        resp.raise_for_status()
+        with open(dest, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=1 << 20):
+                f.write(chunk)
 
 # COMMAND ----------
 
@@ -59,13 +93,8 @@ def get_environment() -> Environment:
 
 
 def is_databricks() -> bool:
-    """Check if running in Databricks."""
+    """Check if running in Databricks (else assume local)."""
     return get_environment() == Environment.DATABRICKS
-
-
-def is_local() -> bool:
-    """Check if running locally."""
-    return get_environment() == Environment.LOCAL
 
 
 # -----------------------------------------------------------------------------

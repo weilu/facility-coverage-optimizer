@@ -86,10 +86,21 @@ def _sanitize_adm_name(name: str) -> str:
     s = re.sub(r"_+", "_", s)
     return s.strip("_")
 
+def should_load_country_cache(force: bool, cache_exists: bool, cache_refreshed_this_run: bool) -> bool:
+    """Whether to reuse the cached country-level OSM extract instead of re-querying.
+
+    Reuse when the cache exists and either it was refreshed earlier in this run (so
+    it is fresh even under force) or we are not forcing. This lets a forced run
+    rebuild the country extract once and have every province reuse that fresh copy
+    rather than re-query the whole country per province, while a province-only
+    forced run still re-queries instead of reading stale data.
+    """
+    return cache_exists and (cache_refreshed_this_run or not force)
+
+
 def get_extract_table_names(
     catalog: str,
     schema: str,
-    country: str,
     iso3: str,
     adm_level1: str | None,
     population_year: int,
@@ -100,7 +111,6 @@ def get_extract_table_names(
     Args:
         catalog: UC catalog name
         schema: UC schema name
-        country: Country name
         iso3: ISO 3-letter country code
         adm_level1: Optional admin level 1 region name
         population_year: Population data year
@@ -114,21 +124,20 @@ def get_extract_table_names(
             "boundaries": f"{catalog}.{schema}.wb_boundaries_{iso3.lower()}{adm_suffix}",
             "population": f"{catalog}.{schema}.population_{iso3.lower()}_{population_year}{adm_suffix}",
             "facilities": f"{catalog}.{schema}.health_facilities_{iso3.lower()}_osm{adm_suffix}",
-            "lgu": f"{catalog}.{schema}.wb_boundaries_lgu_{_sanitize_adm_name(country)}{adm_suffix}",
+            "lgu": f"{catalog}.{schema}.wb_boundaries_lgu_{iso3.lower()}{adm_suffix}",
         }
     else:
         return {
             "boundaries": f"{catalog}.{schema}.wb_boundaries_{iso3.lower()}",
             "population": f"{catalog}.{schema}.population_{iso3.lower()}_{population_year}",
             "facilities": f"{catalog}.{schema}.health_facilities_{iso3.lower()}_osm",
-            "lgu": f"{catalog}.{schema}.wb_boundaries_lgu_{_sanitize_adm_name(country)}",
+            "lgu": f"{catalog}.{schema}.wb_boundaries_lgu_{iso3.lower()}",
         }
 
 
 def get_transform_table_names(
     catalog: str,
     schema: str,
-    country: str,
     iso3: str,
     adm_level1: str | None,
     population_year: int,
@@ -140,7 +149,6 @@ def get_transform_table_names(
     Args:
         catalog: UC catalog name
         schema: UC schema name
-        country: Country name
         iso3: ISO 3-letter country code
         adm_level1: Optional admin level 1 region name
         population_year: Population data year
@@ -162,7 +170,7 @@ def get_transform_table_names(
             "facilities_coverage": f"{catalog}.{schema}.facilities_coverage_{iso3.lower()}{adm_suffix}_{distance_name}",
             "potential_locations": f"{catalog}.{schema}.potential_locations_{iso3.lower()}{adm_suffix}_{distance_name}",
             "potential_coverage": f"{catalog}.{schema}.potential_coverage_{iso3.lower()}{adm_suffix}_{distance_name}",
-            "lgu": f"{catalog}.{schema}.wb_boundaries_lgu_{_sanitize_adm_name(country)}",
+            "lgu": f"{catalog}.{schema}.wb_boundaries_lgu_{iso3.lower()}",
             "lgu_accessibility": f"{catalog}.{schema}.lgu_accessibility_results_{iso3.lower()}{adm_suffix}_{distance_name}",
         }
     else:
@@ -175,7 +183,7 @@ def get_transform_table_names(
             "facilities_coverage": f"{catalog}.{schema}.facilities_coverage_{iso3.lower()}_{distance_name}",
             "potential_locations": f"{catalog}.{schema}.potential_locations_{iso3.lower()}_{distance_name}",
             "potential_coverage": f"{catalog}.{schema}.potential_coverage_{iso3.lower()}_{distance_name}",
-            "lgu": f"{catalog}.{schema}.wb_boundaries_lgu_{_sanitize_adm_name(country)}",
+            "lgu": f"{catalog}.{schema}.wb_boundaries_lgu_{iso3.lower()}",
             "lgu_accessibility": f"{catalog}.{schema}.lgu_accessibility_results_{iso3.lower()}_{distance_name}",
         }
 

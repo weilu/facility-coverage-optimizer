@@ -1,4 +1,3 @@
-"""Unit tests for core functions in shared/core.py"""
 
 import pytest
 from shared.core import (
@@ -13,7 +12,6 @@ from shared.core import (
 
 
 class TestGetKRings:
-    """Tests for get_k_rings function."""
 
     def test_5km_resolution_8(self):
         # H3 resolution 8 edge length is 461m
@@ -46,7 +44,6 @@ class TestGetKRings:
 
 
 class TestSanitizeColName:
-    """Tests for sanitize_col_name function."""
 
     def test_simple_name(self):
         assert sanitize_col_name("Lusaka") == "lgu_Lusaka"
@@ -72,43 +69,41 @@ class TestSanitizeColName:
 
 
 class TestGetExtractTableNames:
-    """Tests for get_extract_table_names function."""
 
     def test_country_level(self):
-        result = get_extract_table_names("prd", "sgp", "zambia", "ZMB", None, 2025)
+        result = get_extract_table_names("prd", "sgp", "ZMB", None, 2025)
         assert result["boundaries"] == "prd.sgp.wb_boundaries_zmb"
         assert result["population"] == "prd.sgp.population_zmb_2025"
         assert result["facilities"] == "prd.sgp.health_facilities_zmb_osm"
-        assert result["lgu"] == "prd.sgp.wb_boundaries_lgu_zambia"
+        assert result["lgu"] == "prd.sgp.wb_boundaries_lgu_zmb"
 
     def test_province_level(self):
-        result = get_extract_table_names("prd", "sgp", "zambia", "ZMB", "Northern", 2025)
+        result = get_extract_table_names("prd", "sgp", "ZMB", "Northern", 2025)
         assert result["boundaries"] == "prd.sgp.wb_boundaries_zmb_northern_province"
         assert result["population"] == "prd.sgp.population_zmb_2025_northern_province"
         assert result["facilities"] == "prd.sgp.health_facilities_zmb_osm_northern_province"
-        assert result["lgu"] == "prd.sgp.wb_boundaries_lgu_zambia_northern_province"
+        assert result["lgu"] == "prd.sgp.wb_boundaries_lgu_zmb_northern_province"
 
     def test_hyphenated_province(self):
-        result = get_extract_table_names("prd", "sgp", "zambia", "ZMB", "North-Western", 2025)
+        result = get_extract_table_names("prd", "sgp", "ZMB", "North-Western", 2025)
         assert "_north_western_province" in result["boundaries"]
 
 
 class TestGetTransformTableNames:
-    """Tests for get_transform_table_names function."""
 
     def test_province_with_distance(self):
-        result = get_transform_table_names("prd", "sgp", "zambia", "ZMB", "Northern", 2025, 5000)
+        result = get_transform_table_names("prd", "sgp", "ZMB", "Northern", 2025, 5000)
         assert result["population_aoi"] == "prd.sgp.population_aoi_zmb_2025_northern_province_5km"
         assert result["facilities_h3"] == "prd.sgp.facilities_h3_zmb_northern_province_5km"
         assert result["potential_coverage"] == "prd.sgp.potential_coverage_zmb_northern_province_5km"
 
     def test_country_level_with_distance(self):
-        result = get_transform_table_names("prd", "sgp", "zambia", "ZMB", None, 2025, 10000)
+        result = get_transform_table_names("prd", "sgp", "ZMB", None, 2025, 10000)
         assert result["population_aoi"] == "prd.sgp.population_aoi_zmb_2025_10km"
         assert result["lgu_accessibility"] == "prd.sgp.lgu_accessibility_results_zmb_10km"
 
     def test_all_keys_present(self):
-        result = get_transform_table_names("prd", "sgp", "zambia", "ZMB", "Northern", 2025, 5000)
+        result = get_transform_table_names("prd", "sgp", "ZMB", "Northern", 2025, 5000)
         expected_keys = [
             "boundaries", "facilities", "population", "population_aoi",
             "facilities_h3", "facilities_coverage", "potential_locations",
@@ -118,7 +113,6 @@ class TestGetTransformTableNames:
 
 
 class TestBuildTransformCombinations:
-    """Tests for build_transform_combinations function."""
 
     def test_single_province_single_distance(self):
         result = build_transform_combinations(["Northern"], [5000])
@@ -142,7 +136,6 @@ class TestBuildTransformCombinations:
 
 
 class TestSolveMclpGreedy:
-    """Tests for solve_mclp_greedy function."""
 
     def test_simple_case(self):
         # Simple scenario: 3 H3 cells, 2 potential facilities
@@ -241,7 +234,6 @@ class TestSolveMclpGreedy:
         assert set(first["covered_h3"]) == {"h3_cell_1", "h3_cell_2", "h3_cell_3"}
 
 class TestDeduplicateColumns:
-    """Tests for deduplicate_columns function."""
 
     def test_no_duplicates(self):
         cols = ["a", "b", "c"]
@@ -267,3 +259,23 @@ class TestDeduplicateColumns:
     def test_empty_list(self):
         result = deduplicate_columns([])
         assert result == []
+
+
+from shared.core import should_load_country_cache
+
+
+class TestShouldLoadCountryCache:
+
+    def test_reuses_when_present_and_not_forcing(self):
+        assert should_load_country_cache(False, cache_exists=True, cache_refreshed_this_run=False) is True
+
+    def test_forcing_rejects_stale_cache(self):
+        # A province-only forced run must re-query, not read a stale country cache.
+        assert should_load_country_cache(True, cache_exists=True, cache_refreshed_this_run=False) is False
+
+    def test_forcing_reuses_cache_refreshed_this_run(self):
+        # Forced run: provinces reuse the country extract the country pass just rebuilt.
+        assert should_load_country_cache(True, cache_exists=True, cache_refreshed_this_run=True) is True
+
+    def test_no_reuse_when_absent(self):
+        assert should_load_country_cache(False, cache_exists=False, cache_refreshed_this_run=False) is False

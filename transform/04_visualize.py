@@ -1,5 +1,5 @@
 # Databricks notebook source
-# MAGIC %pip install "numpy<2" geopandas shapely plotly folium
+# MAGIC %pip install "numpy<2" geopandas shapely plotly folium pycountry
 
 # COMMAND ----------
 
@@ -24,7 +24,6 @@ dbutils.library.restartPython()
 
 import datetime
 
-import pandas as pd
 import plotly.graph_objects as go
 import folium as fl
 
@@ -45,7 +44,6 @@ import os
 if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
     from shared.env import get_spark, table_exists, uc_table_to_gdf
     from transform.config import (
-        COUNTRY,
         COUNTRY_ISO3,
         POPULATION_YEAR,
         ENABLE_VISUALIZATION,
@@ -202,10 +200,10 @@ def create_coverage_map(
 # If nothing was updated, fall back to national-level results.
 
 def _get_pipeline_start_time():
-    """Get pipeline start time from job parameter, or fall back to now."""
+    """Get pipeline start time from the job parameter, or fall back to now."""
     try:
-        epoch_ms = int(dbutils.widgets.get("PIPELINE_START_EPOCH_MS"))
-        return datetime.datetime.fromtimestamp(epoch_ms / 1000, tz=datetime.timezone.utc)
+        # DAB passes {{job.start_time.iso_datetime}} (epoch_ms is not a valid ref).
+        return datetime.datetime.fromisoformat(dbutils.widgets.get("PIPELINE_START_ISO"))
     except Exception:
         return datetime.datetime.now(datetime.timezone.utc)
 
@@ -231,7 +229,7 @@ def _select_viz_combinations(combinations, job_start):
     fresh = []
     for adm, dist in combinations:
         tables = get_transform_table_names(
-            COUNTRY, COUNTRY_ISO3, adm, POPULATION_YEAR, dist
+            COUNTRY_ISO3, adm, POPULATION_YEAR, dist
         )
         if not table_exists(tables["lgu_accessibility"]):
             continue
@@ -247,7 +245,7 @@ def _select_viz_combinations(combinations, job_start):
     for adm, dist in combinations:
         if adm is None:
             tables = get_transform_table_names(
-                COUNTRY, COUNTRY_ISO3, adm, POPULATION_YEAR, dist
+                COUNTRY_ISO3, adm, POPULATION_YEAR, dist
             )
             if table_exists(tables["lgu_accessibility"]):
                 national.append((adm, dist))
@@ -258,7 +256,7 @@ def _select_viz_combinations(combinations, job_start):
     # Last resort: first combination that exists
     for adm, dist in combinations:
         tables = get_transform_table_names(
-            COUNTRY, COUNTRY_ISO3, adm, POPULATION_YEAR, dist
+            COUNTRY_ISO3, adm, POPULATION_YEAR, dist
         )
         if table_exists(tables["lgu_accessibility"]):
             return [(adm, dist)]
@@ -281,7 +279,7 @@ for adm_level1, distance_meters in transform_combinations:
     distance_name = f"{int(distance_meters / 1000)}km"
 
     tables = get_transform_table_names(
-        COUNTRY, COUNTRY_ISO3, adm_level1, POPULATION_YEAR, distance_meters
+        COUNTRY_ISO3, adm_level1, POPULATION_YEAR, distance_meters
     )
 
     # Check if results exist
@@ -356,7 +354,7 @@ for adm_level1, distance_meters in transform_combinations:
     distance_name = f"{int(distance_meters / 1000)}km"
 
     tables = get_transform_table_names(
-        COUNTRY, COUNTRY_ISO3, adm_level1, POPULATION_YEAR, distance_meters
+        COUNTRY_ISO3, adm_level1, POPULATION_YEAR, distance_meters
     )
 
     # Check if required tables exist

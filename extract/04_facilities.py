@@ -1,5 +1,5 @@
 # Databricks notebook source
-# MAGIC %pip install "numpy<2" geopandas shapely requests
+# MAGIC %pip install "numpy<2" geopandas shapely requests pycountry
 
 # COMMAND ----------
 
@@ -43,6 +43,10 @@ def _get_retry_session():
 
 # COMMAND ----------
 
+# MAGIC %run "../shared/core"
+
+# COMMAND ----------
+
 # MAGIC %run "../shared/env"
 
 # COMMAND ----------
@@ -58,6 +62,7 @@ def _get_retry_session():
 # Local imports (skipped in Databricks where %run loads modules)
 import os
 if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
+    from shared.core import should_load_country_cache
     from shared.env import (
         get_spark,
         gdf_to_uc_table,
@@ -92,6 +97,7 @@ def extract_health_facilities_osm(
     adm_level_name: str = "AOI",
     force: bool = False,
     country_raw_table: str = None,
+    country_cache_fresh: bool = False,
 ) -> pd.DataFrame:
     """
     Queries OSM Overpass API for hospitals and clinics.
@@ -198,16 +204,10 @@ out center;
 
         return pd.DataFrame(rows, columns=["osm_id", "lat", "lon", "name"])
 
-    # Perform country extraction once, province data can be cliped from country data
-    if adm_level1 == None:
-        extract_country_cache = force
-    else:
-        print(f"Switching to country level cache for processing {adm_level1}")
-        # Always make sure country (adm_level=None) is run first in loop
-        extract_country_cache = False
-
+    # Perform country extraction once; province data can be clipped from country data.
     # --- Country-level raw OSM cache (pre-boundary-filter) ---
-    if country_raw_table and not extract_country_cache and table_exists(country_raw_table):
+    country_cache_exists = bool(country_raw_table) and table_exists(country_raw_table)
+    if should_load_country_cache(force, country_cache_exists, country_cache_fresh):
         print(f"Loading cached country-level OSM data from: {country_raw_table}")
         
         # Once country-level extractions are already done, call them directly from the table to avoid re-running for province level
@@ -308,16 +308,19 @@ print(f"Will process {len(regions_to_process)} region(s): {regions_to_process}")
 # COMMAND ----------
 
 # EXECUTE TASK: Extract facilities per region
-country_raw_table = get_table_names(COUNTRY, ISO_3, None, POPULATION_YEAR)["facilities"]
+country_raw_table = get_table_names(ISO_3, None, POPULATION_YEAR)["facilities"]
 
 extraction_results = []
+# Set once the country (adm_level1=None) pass has (re)built country_raw_table this
+# run, so provinces reuse that fresh copy instead of re-querying the whole country.
+country_cache_fresh = False
 
 for adm_level1 in regions_to_process:
     print("\n" + "=" * 60)
     print(f"PROCESSING: {adm_level1 if adm_level1 else 'ENTIRE COUNTRY'}")
     print("=" * 60)
 
-    tables = get_table_names(COUNTRY, ISO_3, adm_level1, POPULATION_YEAR)
+    tables = get_table_names(ISO_3, adm_level1, POPULATION_YEAR)
     boundaries_table = tables["boundaries"]
     facilities_table = tables["facilities"]
 
@@ -341,7 +344,10 @@ for adm_level1 in regions_to_process:
             adm_level_name=adm_level1 if adm_level1 else "Country",
             force=FORCE_RECOMPUTE,
             country_raw_table=country_raw_table,
+            country_cache_fresh=country_cache_fresh,
         )
+        if adm_level1 is None:
+            country_cache_fresh = True
     elif FACILITIES_SOURCE == "file":
         if FACILITIES_INPUT_PATH is None:
             raise ValueError("FACILITIES_SOURCE='file' but FACILITIES_INPUT_PATH is not set")

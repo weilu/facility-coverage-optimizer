@@ -1,5 +1,5 @@
 # Databricks notebook source
-# MAGIC %pip install "numpy<2" geopandas shapely
+# MAGIC %pip install "numpy<2" geopandas shapely pycountry
 
 # COMMAND ----------
 
@@ -163,7 +163,7 @@ for adm_level1 in regions_to_process:
     print(f"PROCESSING: {adm_level1 if adm_level1 else 'ENTIRE COUNTRY'}")
     print("=" * 60)
 
-    tables = get_table_names(COUNTRY, ISO_3, adm_level1, POPULATION_YEAR)
+    tables = get_table_names(ISO_3, adm_level1, POPULATION_YEAR)
     boundaries_table = tables["boundaries"]
 
     print(f"  Boundaries Table: {boundaries_table}")

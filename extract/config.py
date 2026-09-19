@@ -19,30 +19,26 @@
 # Local imports (skipped in Databricks where %run loads modules)
 import os
 import geopandas as gpd
-import re
-import unicodedata
 if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
-    from shared.core import get_extract_table_names, _sanitize_adm_name
+    from shared.core import get_extract_table_names
     from shared.env import file_exists
     from shared.settings import (
         UC_CATALOG,
         UC_SCHEMA,
+        UC_VOLUME,
         COUNTRY,
         ISO_3,
         POPULATION_YEAR,
+        FORCE_RECOMPUTE,
+        INCLUDE_ADM_LEVEL0,
+        H3_RESOLUTION,
     )
 
 # COMMAND ----------
 
 # CONFIGURATION
 
-VOLUME_DIR = f"/Volumes/{UC_CATALOG}/sgpbpi163/vgpbpi163"
-
-# Set to True to recompute cached results even if tables exist
-FORCE_RECOMPUTE = False
-
-# Include country-level (ADM0) processing
-INCLUDE_ADM_LEVEL0 = True
+VOLUME_DIR = f"/Volumes/{UC_CATALOG}/{UC_VOLUME}"
 
 # List of admin level 1 regions to process:
 #   - []: all provinces (auto-discovered from WB boundaries)
@@ -57,8 +53,10 @@ ADM_LEVEL1_LIST = []
 FACILITIES_SOURCE = "osm"
 FACILITIES_INPUT_PATH = f"{VOLUME_DIR}/selected_hosp_input_data.geojson"
 
-# World Bank Official Boundaries GeoJSON URLs (version 5, June 2025)
-WB_BOUNDARIES_BASE_URL = "https://datacatalogfiles.worldbank.org/ddh-published-v2/0038272/5/DR0095369/World%20Bank%20Official%20Boundaries%20(GeoJSON)"
+# World Bank Official Boundaries GeoJSON URLs.
+# Uses the ddh-published path (not ddh-published-v2, which now 404s) so it also
+# resolves to the mounted DDH volume via shared.env.ddh_download_to.
+WB_BOUNDARIES_BASE_URL = "https://datacatalogfiles.worldbank.org/ddh-published/0038272/DR0095369/World%20Bank%20Official%20Boundaries%20(GeoJSON)"
 WB_ADMIN0_URL = f"{WB_BOUNDARIES_BASE_URL}/World%20Bank%20Official%20Boundaries%20-%20Admin%200.geojson"
 WB_ADMIN1_URL = f"{WB_BOUNDARIES_BASE_URL}/World%20Bank%20Official%20Boundaries%20-%20Admin%201.geojson"
 WB_ADMIN2_URL = f"{WB_BOUNDARIES_BASE_URL}/World%20Bank%20Official%20Boundaries%20-%20Admin%202.geojson"
@@ -74,7 +72,7 @@ WB_NAME_CORRECTIONS = {
 # DERIVED CONFIGURATION
 
 COUNTRY_POPULATION_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.population_{ISO_3.lower()}_{POPULATION_YEAR}"
-COUNTRY_LGU_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.wb_boundaries_lgu_{_sanitize_adm_name(COUNTRY)}"
+COUNTRY_LGU_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.wb_boundaries_lgu_{ISO_3.lower()}"
 RASTER_PATH = f"{VOLUME_DIR}/worldpop_{ISO_3.lower()}_{POPULATION_YEAR}.tif"
 
 # COMMAND ----------
@@ -82,10 +80,10 @@ RASTER_PATH = f"{VOLUME_DIR}/worldpop_{ISO_3.lower()}_{POPULATION_YEAR}.tif"
 # TABLE NAME GENERATOR (partial application of shared.core function)
 
 
-def get_table_names(country: str, iso3: str, adm_level1: str | None, population_year: int):
+def get_table_names(iso3: str, adm_level1: str | None, population_year: int):
     """Generate table names based on configuration."""
     return get_extract_table_names(
-        UC_CATALOG, UC_SCHEMA, country, iso3, adm_level1, population_year
+        UC_CATALOG, UC_SCHEMA, iso3, adm_level1, population_year
     )
 
 

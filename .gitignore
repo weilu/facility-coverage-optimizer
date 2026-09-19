@@ -8,3 +8,7 @@ test_output/
 .coverage
 htmlcov/
 .venv
+# Python build artifacts
+build/
+dist/
+*.egg-info/
