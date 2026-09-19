@@ -150,10 +150,12 @@ class TestDdhHelpers:
         with pytest.raises(ValueError):
             env.ddh_volume_path("https://example.com/foo/bar.geojson")
 
-    def test_ddh_bytes_reads_volume_when_present(self, tmp_path, monkeypatch):
-        f = tmp_path / "cached.bin"
-        f.write_bytes(b"volume-copy")
-        # Resolve the "volume path" to our temp file; ddh_bytes should read it
+    def test_ddh_download_to_copies_volume_when_present(self, tmp_path, monkeypatch):
+        src = tmp_path / "cached.bin"
+        src.write_bytes(b"volume-copy")
+        # Resolve the "volume path" to our temp file; ddh_download_to copies it
         # without touching the network.
-        monkeypatch.setattr(env, "ddh_volume_path", lambda url: str(f))
-        assert env.ddh_bytes("https://datacatalogfiles.worldbank.org/ddh-published/x") == b"volume-copy"
+        monkeypatch.setattr(env, "ddh_volume_path", lambda url: str(src))
+        dest = tmp_path / "out.bin"
+        env.ddh_download_to("https://datacatalogfiles.worldbank.org/ddh-published/x", str(dest))
+        assert dest.read_bytes() == b"volume-copy"

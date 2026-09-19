@@ -41,6 +41,9 @@ x-pipeline-params: &pipeline_params
   POPULATION_YEAR: "{{job.parameters.POPULATION_YEAR}}"
   FORCE_RECOMPUTE: "{{job.parameters.FORCE_RECOMPUTE}}"
   INCLUDE_ADM_LEVEL0: "{{job.parameters.INCLUDE_ADM_LEVEL0}}"
+  # Passed to every transform task so config load never hits a missing widget;
+  # only the visualize task overrides it to "true".
+  ENABLE_VISUALIZATION: "false"
 
 resources:
   jobs:
@@ -56,6 +59,8 @@ resources:
 
     pipeline:
       name: "HFO - Pipeline (single country)"
+      # Match the batch for_each concurrency so fan-out runs actually run in parallel.
+      max_concurrent_runs: 4
       parameters:
         - name: COUNTRY_ISO3
           default: LAO

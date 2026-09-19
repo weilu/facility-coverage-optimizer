@@ -11,6 +11,7 @@
 # the convenience wrapper functions for simpler access.
 
 import os
+import shutil
 from enum import Enum
 from typing import Protocol, runtime_checkable
 from pathlib import Path
@@ -28,8 +29,7 @@ if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
 
 # COMMAND ----------
 
-# DDH download helpers: prefer the mounted DDH volume, else download the URL
-# (mirrors mega-indicators' ddh_bytes).
+# DDH download helpers: prefer the mounted DDH volume, else download the URL.
 DDH_VOLUME_ROOT = "/Volumes/prd_development_data/files/ddh"
 
 
@@ -41,15 +41,21 @@ def ddh_volume_path(url: str) -> str:
     return DDH_VOLUME_ROOT + "/" + "/".join(parts[i + 1:])
 
 
-def ddh_bytes(url: str) -> bytes:
-    """Bytes of a DDH file: the mounted volume copy if present, else download the URL."""
+def ddh_download_to(url: str, dest: str) -> None:
+    """Stream a DDH file to dest: copy the mounted volume file if present, else the URL.
+
+    Streams rather than buffering the whole file in memory (some boundary files are
+    large enough to risk the driver).
+    """
     vol = ddh_volume_path(url)
     if os.path.exists(vol):
-        with open(vol, "rb") as f:
-            return f.read()
-    resp = requests.get(url, timeout=300)
-    resp.raise_for_status()
-    return resp.content
+        shutil.copyfile(vol, dest)
+        return
+    with requests.get(url, stream=True, timeout=300) as resp:
+        resp.raise_for_status()
+        with open(dest, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=1 << 20):
+                f.write(chunk)
 
 # COMMAND ----------
 
